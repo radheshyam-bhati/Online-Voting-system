@@ -1,14 +1,11 @@
-import { hash, verify } from "@node-rs/argon2";
+"use server";
+
+import { hash, verify } from "@node-rs/bcrypt";
 
 export async function hashPassword(password: string): Promise<string> {
-  return hash(password, {
-    memoryCost: 19456,
-    timeCost: 2,
-    outputLen: 32,
-    parallelism: 1,
-  });
+  return hash(password, 12);
 }
 
-export async function verifyPassword(password: string, hash: string): Promise<boolean> {
-  return verify(hash, password);
+export async function verifyPassword(password: string, hashValue: string): Promise<boolean> {
+  return verify(password, hashValue);
 }

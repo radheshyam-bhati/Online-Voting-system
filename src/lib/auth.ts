@@ -1,9 +1,5 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { db } from "@/db";
-import { appUser } from "@/db/schema";
-import { eq } from "drizzle-orm";
-import { verifyPassword } from "@/lib/auth-utils";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -17,6 +13,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (!credentials?.email || !credentials?.password) {
           return null;
         }
+
+        const { getDb } = await import("@/db");
+        const db = getDb();
+        const { appUser } = await import("@/db/schema");
+        const { eq } = await import("drizzle-orm");
+        const { verifyPassword } = await import("@/lib/auth-utils");
 
         const user = await db
           .select()
@@ -48,14 +50,21 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
   ],
   session: {
-    strategy: "database",
+    strategy: "jwt",
   },
   callbacks: {
-    async session({ session, user }) {
+    async jwt({ token, user }) {
+      if (user) {
+        token.isAdmin = user.isAdmin;
+        token.enrollmentNo = user.enrollmentNo;
+      }
+      return token;
+    },
+    async session({ session, token }) {
       if (session.user) {
-        session.user.id = user.id;
-        session.user.isAdmin = user.isAdmin;
-        session.user.enrollmentNo = user.enrollmentNo;
+        session.user.id = token.sub!;
+        session.user.isAdmin = token.isAdmin;
+        session.user.enrollmentNo = token.enrollmentNo;
       }
       return session;
     },
@@ -64,4 +73,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     signIn: "/login",
     error: "/login",
   },
+  trustHost: true,
+  secret: process.env.AUTH_SECRET,
 });
