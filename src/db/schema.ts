@@ -10,9 +10,7 @@ import {
   uniqueIndex,
   index,
   primaryKey,
-  check,
 } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
 
 export const electionStatusEnum = pgEnum("election_status", [
   "draft",
@@ -64,12 +62,6 @@ export const appUser = pgTable("app_user", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const appUserEnrollmentIndex = uniqueIndex("idx_app_user_enrollment")
-  .on(appUser.enrollmentNo)
-  .where(sql`${appUser.enrollmentNo} IS NOT NULL`);
-
-export const appUserCampusIndex = index("idx_app_user_campus").on(appUser.campusId);
-
 export const session = pgTable("session", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
@@ -79,9 +71,6 @@ export const session = pgTable("session", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
-
-export const sessionUserIndex = index("idx_session_user").on(session.userId);
-export const sessionTokenIndex = index("idx_session_token").on(session.sessionToken);
 
 export const campus = pgTable("campus", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -114,12 +103,6 @@ export const joinRequest = pgTable("join_request", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const joinRequestStatusIndex = index("idx_join_request_status").on(joinRequest.status);
-
-export const joinRequestPendingEnrollmentIndex = uniqueIndex(
-  "idx_join_request_pending_enrollment"
-).on(joinRequest.enrollmentNo).where(sql`${joinRequest.status} = 'pending'`);
-
 export const event = pgTable("event", {
   id: uuid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
@@ -135,10 +118,6 @@ export const event = pgTable("event", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
-
-export const eventStartsAtIndex = index("idx_event_starts_at")
-  .on(event.startsAt)
-  .where(sql`${event.deletedAt} IS NULL`);
 
 export const eventRsvp = pgTable("event_rsvp", {
   eventId: uuid("event_id")
@@ -165,10 +144,6 @@ export const announcement = pgTable("announcement", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
 
-export const announcementPublishedIndex = index("idx_announcement_published")
-  .on(announcement.publishedAt.desc())
-  .where(sql`${announcement.deletedAt} IS NULL`);
-
 export const election = pgTable("election", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
@@ -194,12 +169,6 @@ export const club = pgTable("club", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const clubElectionIndex = index("idx_club_election").on(club.electionId);
-export const clubCampusIndex = index("idx_club_campus").on(club.campusId);
-
-export const clubNameUniqueIndex = uniqueIndex("uq_club_name_per_election_campus")
-  .on(club.electionId, club.campusId, club.name);
-
 export const candidate = pgTable("candidate", {
   id: uuid("id").primaryKey().defaultRandom(),
   clubId: uuid("club_id")
@@ -210,8 +179,6 @@ export const candidate = pgTable("candidate", {
   photoUrl: text("photo_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
-
-export const candidateClubIndex = index("idx_candidate_club").on(candidate.clubId);
 
 export const electionVoter = pgTable("election_voter", {
   electionId: uuid("election_id")
@@ -260,6 +227,3 @@ export const auditLog = pgTable("audit_log", {
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
-
-export const auditLogActorIndex = index("idx_audit_log_actor").on(auditLog.actorId);
-export const auditLogCreatedIndex = index("idx_audit_log_created").on(auditLog.createdAt.desc());
