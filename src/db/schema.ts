@@ -11,9 +11,11 @@ import {
   index,
   primaryKey,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const electionStatusEnum = pgEnum("election_status", [
   "draft",
+  "nomination",
   "scheduled",
   "open",
   "closed",
@@ -151,6 +153,8 @@ export const election = pgTable("election", {
   status: electionStatusEnum("status").notNull().default("draft"),
   startsAt: timestamp("starts_at", { withTimezone: true }),
   endsAt: timestamp("ends_at", { withTimezone: true }),
+  nominationStartsAt: timestamp("nomination_starts_at", { withTimezone: true }),
+  nominationEndsAt: timestamp("nomination_ends_at", { withTimezone: true }),
   resultsVisibility: resultsVisibilityEnum("results_visibility").notNull().default("members_only"),
   createdBy: uuid("created_by")
     .notNull()
@@ -171,14 +175,50 @@ export const club = pgTable("club", {
 
 export const candidate = pgTable("candidate", {
   id: uuid("id").primaryKey().defaultRandom(),
+  electionId: uuid("election_id")
+    .notNull()
+    .references(() => election.id, { onDelete: "cascade" }),
   clubId: uuid("club_id")
     .notNull()
     .references(() => club.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   statement: text("statement"),
   photoUrl: text("photo_url"),
+  selfNominated: boolean("self_nominated").notNull().default(false),
+  nominatedBy: uuid("nominated_by").references(() => appUser.id, { onDelete: "set null" }),
+  publicStatement: text("public_statement"),
+  statementStatus: text("statement_status").notNull().default("published"),
+  nominatedAt: timestamp("nominated_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  uniqueNomination: uniqueIndex("uq_one_nomination_per_student_per_election")
+    .on(table.electionId, table.nominatedBy)
+    .where(sql`${table.nominatedBy} IS NOT NULL`),
+}));
+
+export const nominationQuestion = pgTable("nomination_question", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clubId: uuid("club_id")
+    .notNull()
+    .references(() => club.id, { onDelete: "cascade" }),
+  questionText: text("question_text").notNull(),
+  displayOrder: integer("display_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const nominationAnswer = pgTable("nomination_answer", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  candidateId: uuid("candidate_id")
+    .notNull()
+    .references(() => candidate.id, { onDelete: "cascade" }),
+  questionId: uuid("question_id")
+    .notNull()
+    .references(() => nominationQuestion.id, { onDelete: "cascade" }),
+  answerText: text("answer_text").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  uniqueAnswer: uniqueIndex("uq_nomination_answer_candidate_question").on(table.candidateId, table.questionId),
+}));
 
 export const electionVoter = pgTable("election_voter", {
   electionId: uuid("election_id")
