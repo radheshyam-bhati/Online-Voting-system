@@ -10,6 +10,7 @@ import {
   uniqueIndex,
   index,
   primaryKey,
+  check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -53,6 +54,7 @@ export const auditActionEnum = pgEnum("audit_action", [
   "admin_permissions_changed",
   "admin_revoked",
   "vote_invalidated",
+  "election_voided",
 ]);
 
 export const adminFunctionEnum = pgEnum("admin_function", [
@@ -69,6 +71,7 @@ export const appUser = pgTable("app_user", {
   fullName: text("full_name").notNull(),
   enrollmentNo: text("enrollment_no").unique(),
   campusId: uuid("campus_id").references(() => campus.id, { onDelete: "set null" }),
+  department: text("department"),
   isAdmin: boolean("is_admin").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -174,7 +177,12 @@ export const election = pgTable("election", {
     .references(() => appUser.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   publishedAt: timestamp("published_at", { withTimezone: true }),
-});
+  voidedBy: uuid("voided_by").references(() => appUser.id, { onDelete: "set null" }),
+  voidedAt: timestamp("voided_at", { withTimezone: true }),
+  voidReason: text("void_reason"),
+}, (table) => ({
+  voidReasonCheck: check("void_reason_required_when_voided", sql`(${table.status}::text <> 'voided') OR (${table.voidReason} IS NOT NULL AND ${table.voidReason} <> '')`),
+}));
 
 export const club = pgTable("club", {
   id: uuid("id").primaryKey().defaultRandom(),

@@ -36,7 +36,7 @@ export async function getElectionDashboard() {
   const db = getDb();
   const { election, club, candidate, electionVoter, vote } = await getSchema();
 
-  // Get elections visible to students: status != 'draft' AND has at least one club
+  // Get elections visible to students: status != 'draft' AND status != 'voided' AND has at least one club
   // For nomination status, clubs can have zero candidates (self-nomination in progress)
   // For scheduled/open/closed/published, clubs must have at least one candidate
   const visibleElections = await db
@@ -142,7 +142,7 @@ export async function getElectionForVoting(electionId: string) {
     .where(
       and(
         eq(election.id, electionId),
-        sql`${election.status} IN ('nomination', 'scheduled', 'open', 'closed', 'published')`,
+        sql`${election.status} IN ('nomination', 'scheduled', 'open', 'closed', 'published', 'voided')`,
         sql`${election.id} IN (SELECT DISTINCT election_id FROM club WHERE election_id = ${election.id})`
       )
     )
@@ -605,7 +605,8 @@ export async function isElectionVisibleToStudents(electionId: string): Promise<b
     .limit(1);
 
   if (!electionData) return false;
-  if (electionData.status === 'draft') return false;
+  const status = electionData.status as "draft" | "nomination" | "scheduled" | "open" | "closed" | "published" | "voided";
+  if (status === 'draft' || status === 'voided') return false;
   
   // Check if has at least one club
   const clubsCount = await hasClubs(db, electionId);
@@ -619,8 +620,9 @@ export async function updateElection(electionId: string, data: Partial<{
   nominationEndsAt: Date | null;
   startsAt: Date | null;
   endsAt: Date | null;
-  status: "draft" | "nomination" | "scheduled" | "open" | "closed" | "published";
+  status: "draft" | "nomination" | "scheduled" | "open" | "closed" | "published" | "voided";
   resultsVisibility: "public" | "members_only" | "admin_only";
+  voidReason: string;
 }>) {
   const adminId = await requireAdmin();
   const db = getDb();
@@ -640,10 +642,49 @@ export async function updateElection(electionId: string, data: Partial<{
   if (data.startsAt) updateData.startsAt = new Date(data.startsAt);
   if (data.endsAt) updateData.endsAt = new Date(data.endsAt);
 
+  // If transitioning to voided, validate reason and prevent voiding published
+  if (data.status === 'voided') {
+    const [currentElection] = await db
+      .select({ status: election.status })
+      .from(election)
+      .where(eq(election.id, electionId))
+      .limit(1);
+    
+    if (!currentElection) {
+      return { error: "Election not found" };
+    }
+    
+    if (currentElection.status === 'published') {
+      return { error: "Cannot void a published election. Published elections have final results." };
+    }
+    
+    if (!data.voidReason || data.voidReason.trim().length === 0) {
+      return { error: "A reason is required to void an election" };
+    }
+    
+    updateData.voidedBy = adminId;
+    updateData.voidedAt = new Date();
+    updateData.voidReason = data.voidReason.trim();
+    
+    // Audit log
+    const { auditLog } = await getSchema();
+    await db.insert(auditLog).values({
+      actorId: adminId,
+      action: "election_voided",
+      targetType: "election",
+      targetId: electionId,
+      metadata: { reason: data.voidReason.trim() },
+    });
+  }
+
   await db.update(election).set(updateData).where(eq(election.id, electionId));
 
   revalidatePath("/admin/elections");
   return { success: true };
+}
+
+export async function voidElection(electionId: string, reason: string) {
+  return updateElection(electionId, { status: 'voided', voidReason: reason });
 }
 
 export async function invalidateVote(voteId: string, reason: string) {
