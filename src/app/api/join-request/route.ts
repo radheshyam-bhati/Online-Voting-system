@@ -1,6 +1,8 @@
 import { getDb } from "@/db";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
+import { NextResponse } from "next/server";
+import { rateLimit, getClientIdentifier, addRateLimitHeaders } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +14,17 @@ const joinRequestSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const clientIp = getClientIdentifier(request as any);
+  const rateLimitResult = rateLimit(clientIp, 10, 60 * 1000); // 10 requests per minute
+  
+  if (!rateLimitResult.success) {
+    const response = NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      { status: 429 }
+    );
+    return addRateLimitHeaders(response, rateLimitResult);
+  }
+
   const db = getDb();
   const { appUser, joinRequest } = await import("@/db/schema");
   try {
@@ -25,7 +38,8 @@ export async function POST(request: Request) {
 
     const parsed = joinRequestSchema.safeParse(rawData);
     if (!parsed.success) {
-      return Response.json({ error: parsed.error.issues[0].message }, { status: 400 });
+      const response = NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+      return addRateLimitHeaders(response, rateLimitResult);
     }
 
     const existingUser = await db
@@ -35,10 +49,11 @@ export async function POST(request: Request) {
       .limit(1);
 
     if (existingUser[0]) {
-      return Response.json(
+      const response = NextResponse.json(
         { error: "A user with this enrollment number already exists" },
         { status: 409 }
       );
+      return addRateLimitHeaders(response, rateLimitResult);
     }
 
     const existingRequest = await db
@@ -53,16 +68,19 @@ export async function POST(request: Request) {
       .limit(1);
 
     if (existingRequest[0]) {
-      return Response.json(
+      const response = NextResponse.json(
         { error: "A pending request with this enrollment number already exists" },
         { status: 409 }
       );
+      return addRateLimitHeaders(response, rateLimitResult);
     }
 
     await db.insert(joinRequest).values(parsed.data);
 
-    return Response.json({ success: true });
+    const successResponse = NextResponse.json({ success: true });
+    return addRateLimitHeaders(successResponse, rateLimitResult);
   } catch {
-    return Response.json({ error: "Something went wrong. Please try again." }, { status: 500 });
+    const errorResponse = NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
+    return addRateLimitHeaders(errorResponse, rateLimitResult);
   }
 }
