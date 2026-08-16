@@ -109,12 +109,13 @@ async function VoteContent({ params }: VotePageProps) {
             </div>
           </header>
 
-          <VoteForm 
-            electionId={electionId} 
-            clubId={clubId} 
-            clubName={club.name} 
-            candidates={club.candidates} 
-          />
+<VoteForm 
+  electionId={electionId} 
+  clubId={clubId} 
+  clubName={club.name} 
+  electionStatus={electionData.election.status}
+  candidates={club.candidates} 
+/>
         </div>
       </main>
 

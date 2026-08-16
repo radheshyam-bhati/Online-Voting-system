@@ -98,7 +98,7 @@ export async function getElectionDashboard() {
             name: candidate.name,
             statement: candidate.publicStatement,
             photoUrl: candidate.photoUrl,
-            profileVisible: isCandidateProfileVisible(election.status),
+            profileVisible: sql`${isCandidateProfileVisible(election.status)}`,
           })
           .from(candidate)
           .where(and(eq(candidate.clubId, club.id), eq(candidate.electionId, election.id)))
@@ -198,10 +198,10 @@ export async function getElectionForVoting(electionId: string) {
         name: candidate.name,
         publicStatement: candidate.publicStatement,
         photoUrl: candidate.photoUrl,
-        statementStatus: candidate.statementStatus,
+        profileVisible: sql`${isCandidateProfileVisible(electionData.status)}`,
       })
       .from(candidate)
-      .where(and(eq(candidate.clubId, club.id), eq(candidate.electionId, electionId)))
+      .where(and(eq(candidate.clubId, club.id), eq(candidate.electionId, election.id)))
       .orderBy(candidate.createdAt);
 
     return { ...club, candidates };
@@ -362,7 +362,7 @@ export async function getElectionResults(electionId: string) {
         publicStatement: candidate.publicStatement,
         photoUrl: candidate.photoUrl,
         voteCount: sql<number>`count(${vote.id})`,
-        profileVisible: isCandidateProfileVisible(electionData.status),
+        profileVisible: sql`${isCandidateProfileVisible(electionData.status)}`,
       })
       .from(candidate)
       .leftJoin(
@@ -428,7 +428,7 @@ export async function getNominationQuestions(clubId: string) {
   return questions;
 }
 
-export async function submitNomination(electionId: string, clubId: string, answers: { questionId: string; answerText: string }[]) {
+export async function submitNomination(electionId: string, clubId: string, answers: { questionId: string; answerText: string }[], photoUrl?: string) {
   const userId = await requireAuth();
   const db = getDb();
   const { election, club, candidate, electionVoter, nominationQuestion, nominationAnswer } = await getSchema();
@@ -520,7 +520,7 @@ export async function submitNomination(electionId: string, clubId: string, answe
       name: user?.fullName || "Unknown",
       selfNominated: true,
       nominatedBy: userId,
-      statementStatus: "pending",
+      photoUrl: photoUrl || null,
       nominatedAt: new Date(),
     })
     .returning();
@@ -801,6 +801,127 @@ export async function invalidateVote(voteId: string, reason: string) {
     targetType: "vote_invalidation",
     targetId: voteId,
     metadata: { voteId, reason: reason.trim() },
+  });
+
+  revalidatePath("/admin/elections");
+  return { success: true };
+}
+
+export async function addCandidate(data: {
+  electionId: string;
+  clubId: string;
+  name: string;
+  publicStatement?: string;
+  photoUrl?: string;
+}) {
+  const adminId = await requireAdmin();
+  const db = getDb();
+  const { candidate, club, auditLog: auditLogSchema } = await getSchema();
+
+  // Verify club exists and belongs to election
+  const [clubData] = await db
+    .select()
+    .from(club)
+    .where(and(eq(club.id, data.clubId), eq(club.electionId, data.electionId)))
+    .limit(1);
+
+  if (!clubData) {
+    return { error: "Invalid club" };
+  }
+
+  const [newCandidate] = await db
+    .insert(candidate)
+    .values({
+      electionId: data.electionId,
+      clubId: data.clubId,
+      name: data.name,
+      publicStatement: data.publicStatement || null,
+      photoUrl: data.photoUrl || null,
+      selfNominated: false,
+      nominatedBy: adminId,
+      nominatedAt: new Date(),
+    })
+    .returning();
+
+  // Audit log
+  await db.insert(auditLogSchema).values({
+    actorId: adminId,
+    action: "candidate_added",
+    targetType: "candidate",
+    targetId: newCandidate.id,
+    metadata: { electionId: data.electionId, clubId: data.clubId, selfNominated: false },
+  });
+
+  revalidatePath("/admin/elections");
+  return { success: true, candidateId: newCandidate.id };
+}
+
+export async function updateCandidate(candidateId: string, data: Partial<{
+  name: string;
+  publicStatement: string | null;
+  photoUrl: string | null;
+}>) {
+  const adminId = await requireAdmin();
+  const db = getDb();
+  const { candidate, auditLog: auditLogSchema } = await getSchema();
+
+  const [existing] = await db
+    .select()
+    .from(candidate)
+    .where(eq(candidate.id, candidateId))
+    .limit(1);
+
+  if (!existing) {
+    return { error: "Candidate not found" };
+  }
+
+  const updateData: Record<string, unknown> = { ...data };
+  if (data.publicStatement !== undefined) updateData.publicStatement = data.publicStatement;
+  if (data.photoUrl !== undefined) updateData.photoUrl = data.photoUrl;
+
+  await db.update(candidate).set(updateData).where(eq(candidate.id, candidateId));
+
+  // Audit log
+  await db.insert(auditLogSchema).values({
+    actorId: adminId,
+    action: "candidate_added",
+    targetType: "candidate",
+    targetId: candidateId,
+    metadata: { updated: true },
+  });
+
+  revalidatePath("/admin/elections");
+  return { success: true };
+}
+
+export async function deleteCandidate(candidateId: string) {
+  const adminId = await requireAdmin();
+  const db = getDb();
+  const { candidate, auditLog: auditLogSchema, nominationAnswer } = await getSchema();
+
+  const [existing] = await db
+    .select()
+    .from(candidate)
+    .where(eq(candidate.id, candidateId))
+    .limit(1);
+
+  if (!existing) {
+    return { error: "Candidate not found" };
+  }
+
+  // Delete nomination answers first (cascade should handle this, but being explicit)
+  await db.delete(nominationAnswer).where(eq(nominationAnswer.candidateId, candidateId));
+
+  // Delete candidate
+  await db.delete(candidate).where(eq(candidate.id, candidateId));
+
+  // Audit log
+  await db.insert(auditLogSchema).values({
+    actorId: adminId,
+    action: "candidate_added",
+    targetType: "candidate",
+    targetId: candidateId,
+    metadata: { deleted: true },
   });
 
   revalidatePath("/admin/elections");

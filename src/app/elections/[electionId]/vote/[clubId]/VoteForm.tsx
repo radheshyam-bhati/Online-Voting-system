@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Vote, AlertCircle, CheckCircle, Loader2, ArrowLeft } from "lucide-react";
 import { castVote } from "@/lib/actions/elections";
+import { isCandidateProfileVisible } from "@/lib/candidate-visibility";
 
 // eslint-disable-next-line react-hooks/error-boundaries
 
@@ -14,6 +15,7 @@ interface VoteFormProps {
   electionId: string;
   clubId: string;
   clubName: string;
+  electionStatus: string;
   candidates: Array<{ 
     id: string; 
     name: string; 
@@ -22,12 +24,47 @@ interface VoteFormProps {
   }>;
 }
 
-export function VoteForm({ electionId, clubId, clubName, candidates }: VoteFormProps) {
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .map(n => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+function CandidatePhoto({ name, photoUrl, profileVisible }: { name: string; photoUrl: string | null; profileVisible: boolean }) {
+  if (!profileVisible) {
+    return (
+      <div className="flex-shrink-0 w-20 h-20 rounded-full border-2 border-primary/20 bg-primary/10 flex items-center justify-center">
+        <span className="font-heading text-2xl font-bold text-primary">{getInitials(name)}</span>
+      </div>
+    );
+  }
+
+  if (photoUrl) {
+    return (
+      <div className="flex-shrink-0 w-20 h-20 rounded-full overflow-hidden border-2 border-border">
+        <img src={photoUrl} alt={name} className="w-full h-full object-cover" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-shrink-0 w-20 h-20 rounded-full border-2 border-primary/20 bg-primary/10 flex items-center justify-center">
+      <span className="font-heading text-2xl font-bold text-primary">{getInitials(name)}</span>
+    </div>
+  );
+}
+
+export function VoteForm({ electionId, clubId, clubName, electionStatus, candidates }: VoteFormProps) {
   const [selectedCandidate, setSelectedCandidate] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+
+  const profileVisible = isCandidateProfileVisible(electionStatus);
 
   const handleSubmit = async () => {
     if (!selectedCandidate) {
@@ -38,7 +75,6 @@ export function VoteForm({ electionId, clubId, clubName, candidates }: VoteFormP
     setSubmitting(true);
     setError("");
 
-    // eslint-disable-next-line react-hooks/error-boundaries
     try {
       const result = await castVote(electionId, clubId, selectedCandidate);
       if (result.error) {
@@ -95,28 +131,40 @@ export function VoteForm({ electionId, clubId, clubName, candidates }: VoteFormP
           <Card
             key={candidate.id}
             className={`relative cursor-pointer transition-all ${
-              selectedCandidate === candidate.id ? "border-2 border-primary ring-2 ring-primary/20" : "border-border hover:border-primary/50"
-            }`}
+              selectedCandidate === candidate.id 
+                ? "border-2 border-accent bg-accent/5 ring-2 ring-accent/20" 
+                : "border-border hover:border-accent/50"
+            } candidate-card`}
             onClick={() => !confirming && setSelectedCandidate(candidate.id)}
           >
             <CardContent className="p-6">
-              <div className="flex items-start gap-4">
-                <div className="flex-shrink-0 w-12 h-12 rounded-full border-2 border-primary/50 flex items-center justify-center">
-                  <div className="w-6 h-6 rounded-full bg-primary/20" />
+              <div className="flex flex-col items-center text-center gap-4">
+                <CandidatePhoto 
+                  name={candidate.name} 
+                  photoUrl={candidate.photoUrl} 
+                  profileVisible={profileVisible} 
+                />
+                <div className="flex-1 min-w-0 w-full">
+                  <h4 className="font-heading font-bold text-lg text-center">{candidate.name}</h4>
+                  {profileVisible && candidate.publicStatement ? (
+                    <p className="text-sm text-muted-foreground line-clamp-3 mt-2 text-center">
+                      {candidate.publicStatement}
+                    </p>
+                  ) : profileVisible && !candidate.publicStatement ? (
+                    null
+                  ) : (
+                    <p className="text-sm text-muted-foreground line-clamp-3 mt-2 text-center italic">
+                      Photo and statement available once voting opens
+                    </p>
+                  )}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <h4 className="font-heading font-bold text-lg">{candidate.name}</h4>
-                  <p className="text-sm text-muted-foreground line-clamp-3">
-                    {candidate.publicStatement || "No statement provided"}
-                  </p>
-                </div>
-                <div className="flex-shrink-0">
+                <div className="flex-shrink-0 w-10 h-10">
                   {selectedCandidate === candidate.id ? (
-                    <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
-                      <CheckCircle className="w-5 h-5 text-primary-foreground" />
+                    <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center">
+                      <CheckCircle className="w-6 h-6 text-accent-foreground" />
                     </div>
                   ) : (
-                    <div className="w-8 h-8 rounded-full border-2 border-muted flex items-center justify-center text-muted-foreground" />
+                    <div className="w-10 h-10 rounded-full border-2 border-muted flex items-center justify-center text-muted-foreground" />
                   )}
                 </div>
               </div>

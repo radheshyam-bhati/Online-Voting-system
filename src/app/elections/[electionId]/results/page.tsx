@@ -7,7 +7,52 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Vote, Calendar, ArrowLeft, BarChart2, Users, Trophy, AlertCircle, AlertTriangle } from "lucide-react";
 import { getElectionResults } from "@/lib/actions/elections";
-import { isCandidateProfileVisible } from "@/lib/actions/elections";
+import { isCandidateProfileVisible } from "@/lib/candidate-visibility";
+
+interface CandidateResult {
+  id: string;
+  name: string;
+  publicStatement: string | null;
+  photoUrl: string | null;
+  voteCount: number;
+  profileVisible: boolean;
+}
+
+interface ClubResult {
+  clubId: string;
+  clubName: string;
+  campusName: string | null;
+  totalVotes: number;
+  candidates: Array<{
+    id: string;
+    name: string;
+    publicStatement: string | null;
+    photoUrl: string | null;
+    voteCount: number;
+    profileVisible: boolean;
+  }>;
+  isTied: boolean;
+  tiedCandidates: string[];
+  tieBreakPolicy: string;
+}
+
+interface ElectionResult {
+  id: string;
+  name: string;
+  status: string;
+  multiCampus: boolean;
+  startsAt: Date | null;
+  endsAt: Date | null;
+  nominationStartsAt: Date | null;
+  nominationEndsAt: Date | null;
+  resultsVisibility: string;
+  tieBreakPolicy: string;
+}
+
+interface ElectionResultsData {
+  election: ElectionResult;
+  results: ClubResult[];
+}
 
 interface ResultsPageProps {
   params: Promise<{ electionId: string }>;
@@ -19,6 +64,39 @@ export async function generateMetadata({ params }: ResultsPageProps): Promise<Me
     title: `Results — Election`,
     description: "View election results and participation statistics",
   };
+}
+
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .map(n => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+function CandidatePhoto({ name, photoUrl, profileVisible }: { name: string; photoUrl: string | null; profileVisible: boolean }) {
+  if (!profileVisible) {
+    return (
+      <div className="flex-shrink-0 w-10 h-10 rounded-full border-2 border-primary/20 bg-primary/10 flex items-center justify-center">
+        <span className="font-heading text-base font-bold text-primary">{getInitials(name)}</span>
+      </div>
+    );
+  }
+
+  if (photoUrl) {
+    return (
+      <div className="flex-shrink-0 w-10 h-10 rounded-full overflow-hidden border-2 border-border">
+        <img src={photoUrl} alt={name} className="w-full h-full object-cover" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-shrink-0 w-10 h-10 rounded-full border-2 border-primary/20 bg-primary/10 flex items-center justify-center">
+      <span className="font-heading text-base font-bold text-primary">{getInitials(name)}</span>
+    </div>
+  );
 }
 
 async function ResultsContent({ params }: ResultsPageProps) {
@@ -129,25 +207,20 @@ async function ResultsContent({ params }: ResultsPageProps) {
                         return (
                           <div key={candidate.id} className={`p-4 rounded-lg ${isTied ? "bg-amber-50 border-2 border-amber-300" : isWinner ? "bg-primary/5 border border-primary/20" : "bg-card border border-border"}`}>
                             <div className="flex items-center gap-4">
-                              <div className="flex-shrink-0 w-10 h-10 rounded-full border-2 flex items-center justify-center">
-                                {isTied ? (
-                                  <div className="w-5 h-5 rounded-full bg-amber-200 flex items-center justify-center">
-                                    <AlertTriangle className="w-4 h-4 text-amber-700" />
-                                  </div>
-                                ) : isWinner ? (
-                                  <div className="w-5 h-5 rounded-full bg-accent" />
-                                ) : (
-                                  <div className="w-5 h-5 rounded-full bg-primary/20" />
-                                )}
-                              </div>
+                              <CandidatePhoto 
+                                name={candidate.name} 
+                                photoUrl={candidate.photoUrl} 
+                                profileVisible={profileVisible} 
+                              />
                               <div className="flex-1 min-w-0">
                                 <h4 className="font-heading font-bold text-lg">{candidate.name}</h4>
-                                {profileVisible && (
+                                {profileVisible && candidate.publicStatement ? (
                                   <p className="text-sm text-muted-foreground line-clamp-2">
-                                    {candidate.publicStatement || "No statement provided"}
+                                    {candidate.publicStatement}
                                   </p>
-                                )}
-                                {!profileVisible && (
+                                ) : profileVisible && !candidate.publicStatement ? (
+                                  null
+                                ) : (
                                   <p className="text-sm text-muted-foreground line-clamp-2 italic">
                                     Photo and statement available once voting opens
                                   </p>

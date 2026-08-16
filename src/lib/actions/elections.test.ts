@@ -286,13 +286,13 @@ it("should return true for open elections with clubs", async () => {
     });
 
     it("should return true for closed election status", async () => {
-      const { isCandidateProfileVisible } = await import("@/lib/actions/elections");
+      const { isCandidateProfileVisible } = await import("@/lib/candidate-visibility");
       
       expect(isCandidateProfileVisible("closed")).toBe(true);
     });
 
     it("should return true for published election status", async () => {
-      const { isCandidateProfileVisible } = await import("@/lib/actions/elections");
+      const { isCandidateProfileVisible } = await import("@/lib/candidate-visibility");
       
       expect(isCandidateProfileVisible("published")).toBe(true);
     });
