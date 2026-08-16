@@ -64,6 +64,8 @@ export const appUser = pgTable("app_user", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export type AppUser = typeof appUser.$inferSelect;
+
 export const session = pgTable("session", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")

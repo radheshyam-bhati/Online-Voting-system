@@ -9,6 +9,7 @@ import {
   candidate,
   electionVoter,
 } from "@/db/schema";
+import type { AppUser } from "@/db/schema";
 import { hashPassword } from "@/lib/auth-utils";
 
 async function seed() {
@@ -46,55 +47,62 @@ async function seed() {
 
   console.log("Created admin:", admin.email);
 
-  // Create test students
-  const studentPassword = await hashPassword("student123");
-  const students = await db
-    .insert(appUser)
-    .values([
-      {
-        email: "student1@college.edu",
-        passwordHash: studentPassword,
-        fullName: "Alice Johnson",
-        enrollmentNo: "STU2024001",
-        campusId: campuses[0].id,
-        isActive: true,
-      },
-      {
-        email: "student2@college.edu",
-        passwordHash: studentPassword,
-        fullName: "Bob Smith",
-        enrollmentNo: "STU2024002",
-        campusId: campuses[0].id,
-        isActive: true,
-      },
-      {
-        email: "student3@college.edu",
-        passwordHash: studentPassword,
-        fullName: "Carol Davis",
-        enrollmentNo: "STU2024003",
-        campusId: campuses[1].id,
-        isActive: true,
-      },
-      {
-        email: "student4@college.edu",
-        passwordHash: studentPassword,
-        fullName: "David Wilson",
-        enrollmentNo: "STU2024004",
-        campusId: campuses[1].id,
-        isActive: true,
-      },
-      {
-        email: "student5@college.edu",
-        passwordHash: studentPassword,
-        fullName: "Eve Brown",
-        enrollmentNo: "STU2024005",
-        campusId: campuses[2].id,
-        isActive: true,
-      },
-    ])
-    .returning();
+  // Create test students (only if SEED_TEST_STUDENTS=true)
+  const seedTestStudents = process.env.SEED_TEST_STUDENTS === "true";
+  let students: AppUser[] = [];
 
-  console.log("Created students:", students.length);
+  if (seedTestStudents) {
+    const studentPassword = await hashPassword("student123");
+    students = await db
+      .insert(appUser)
+      .values([
+        {
+          email: "student1@college.edu",
+          passwordHash: studentPassword,
+          fullName: "Alice Johnson",
+          enrollmentNo: "STU2024001",
+          campusId: campuses[0].id,
+          isActive: true,
+        },
+        {
+          email: "student2@college.edu",
+          passwordHash: studentPassword,
+          fullName: "Bob Smith",
+          enrollmentNo: "STU2024002",
+          campusId: campuses[0].id,
+          isActive: true,
+        },
+        {
+          email: "student3@college.edu",
+          passwordHash: studentPassword,
+          fullName: "Carol Davis",
+          enrollmentNo: "STU2024003",
+          campusId: campuses[1].id,
+          isActive: true,
+        },
+        {
+          email: "student4@college.edu",
+          passwordHash: studentPassword,
+          fullName: "David Wilson",
+          enrollmentNo: "STU2024004",
+          campusId: campuses[1].id,
+          isActive: true,
+        },
+        {
+          email: "student5@college.edu",
+          passwordHash: studentPassword,
+          fullName: "Eve Brown",
+          enrollmentNo: "STU2024005",
+          campusId: campuses[2].id,
+          isActive: true,
+        },
+      ])
+      .returning();
+
+    console.log("Created test students:", students.length);
+  } else {
+    console.log("Skipping test students (set SEED_TEST_STUDENTS=true to create)");
+  }
 
   // Create memberships for students
   await db.insert(membership).values(
@@ -164,15 +172,19 @@ async function seed() {
 
   console.log("Created candidates:", candidates.length);
 
-  // Add voters to election
-  const electionVoters = students.map((s) => ({
-    electionId: electionRecord.id,
-    userId: s.id,
-    campusId: s.campusId,
-  }));
+  // Add voters to election (only if test students were created)
+  if (students.length > 0) {
+    const electionVoters = students.map((s) => ({
+      electionId: electionRecord.id,
+      userId: s.id,
+      campusId: s.campusId,
+    }));
 
-  await db.insert(electionVoter).values(electionVoters);
-  console.log("Added voters to election");
+    await db.insert(electionVoter).values(electionVoters);
+    console.log("Added test students as voters to election");
+  } else {
+    console.log("No test students to add as voters");
+  }
 
   console.log("Seeding complete!");
 }
