@@ -211,7 +211,6 @@ export const candidate = pgTable("candidate", {
   selfNominated: boolean("self_nominated").notNull().default(false),
   nominatedBy: uuid("nominated_by").references(() => appUser.id, { onDelete: "set null" }),
   publicStatement: text("public_statement"),
-  statementStatus: text("statement_status").notNull().default("published"),
   nominatedAt: timestamp("nominated_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({

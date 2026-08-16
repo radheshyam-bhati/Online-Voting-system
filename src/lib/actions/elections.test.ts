@@ -277,4 +277,48 @@ it("should return true for open elections with clubs", async () => {
       expect(result).toBe(true);
     });
   });
+
+  describe("isCandidateProfileVisible", () => {
+    it("should return true for open election status", async () => {
+      const { isCandidateProfileVisible } = await import("@/lib/candidate-visibility");
+      
+      expect(isCandidateProfileVisible("open")).toBe(true);
+    });
+
+    it("should return true for closed election status", async () => {
+      const { isCandidateProfileVisible } = await import("@/lib/actions/elections");
+      
+      expect(isCandidateProfileVisible("closed")).toBe(true);
+    });
+
+    it("should return true for published election status", async () => {
+      const { isCandidateProfileVisible } = await import("@/lib/actions/elections");
+      
+      expect(isCandidateProfileVisible("published")).toBe(true);
+    });
+
+    it("should return false for draft election status", async () => {
+      const { isCandidateProfileVisible } = await import("@/lib/candidate-visibility");
+      
+      expect(isCandidateProfileVisible("draft")).toBe(false);
+    });
+
+    it("should return false for nomination election status", async () => {
+      const { isCandidateProfileVisible } = await import("@/lib/candidate-visibility");
+      
+      expect(isCandidateProfileVisible("nomination")).toBe(false);
+    });
+
+    it("should return false for scheduled election status", async () => {
+      const { isCandidateProfileVisible } = await import("@/lib/candidate-visibility");
+      
+      expect(isCandidateProfileVisible("scheduled")).toBe(false);
+    });
+
+    it("should return false for voided election status", async () => {
+      const { isCandidateProfileVisible } = await import("@/lib/candidate-visibility");
+      
+      expect(isCandidateProfileVisible("voided")).toBe(false);
+    });
+  });
 });

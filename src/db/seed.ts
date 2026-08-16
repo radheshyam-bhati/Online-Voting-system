@@ -155,18 +155,18 @@ async function seed() {
   const candidates = await db
     .insert(candidate)
     .values([
-      { electionId: electionRecord.id, clubId: clubs[0].id, name: "Alex Turner", statement: "Passionate about coding and innovation.", statementStatus: "published" },
-      { electionId: electionRecord.id, clubId: clubs[0].id, name: "Jordan Lee", statement: "Building the future, one line at a time.", statementStatus: "published" },
-      { electionId: electionRecord.id, clubId: clubs[1].id, name: "Taylor Swift", statement: "Debate is the art of persuasion.", statementStatus: "published" },
-      { electionId: electionRecord.id, clubId: clubs[1].id, name: "Morgan Freeman", statement: "Every voice matters.", statementStatus: "published" },
-      { electionId: electionRecord.id, clubId: clubs[2].id, name: "Casey Jones", statement: "Tech for everyone.", statementStatus: "published" },
-      { electionId: electionRecord.id, clubId: clubs[2].id, name: "Riley Chen", statement: "Code with purpose.", statementStatus: "published" },
-      { electionId: electionRecord.id, clubId: clubs[3].id, name: "Sam Rivera", statement: "Music connects us all.", statementStatus: "published" },
-      { electionId: electionRecord.id, clubId: clubs[3].id, name: "Jamie Park", statement: "Melodies that inspire.", statementStatus: "published" },
-      { electionId: electionRecord.id, clubId: clubs[4].id, name: "Drew Kim", statement: "Art is expression.", statementStatus: "published" },
-      { electionId: electionRecord.id, clubId: clubs[4].id, name: "Quinn Adams", statement: "Colors speak louder than words.", statementStatus: "published" },
-      { electionId: electionRecord.id, clubId: clubs[5].id, name: "Peyton Brooks", statement: "Sports build character.", statementStatus: "published" },
-      { electionId: electionRecord.id, clubId: clubs[5].id, name: "Reese Foster", statement: "Teamwork makes the dream work.", statementStatus: "published" },
+      { electionId: electionRecord.id, clubId: clubs[0].id, name: "Alex Turner", statement: "Passionate about coding and innovation." },
+      { electionId: electionRecord.id, clubId: clubs[0].id, name: "Jordan Lee", statement: "Building the future, one line at a time." },
+      { electionId: electionRecord.id, clubId: clubs[1].id, name: "Taylor Swift", statement: "Debate is the art of persuasion." },
+      { electionId: electionRecord.id, clubId: clubs[1].id, name: "Morgan Freeman", statement: "Every voice matters." },
+      { electionId: electionRecord.id, clubId: clubs[2].id, name: "Casey Jones", statement: "Tech for everyone." },
+      { electionId: electionRecord.id, clubId: clubs[2].id, name: "Riley Chen", statement: "Code with purpose." },
+      { electionId: electionRecord.id, clubId: clubs[3].id, name: "Sam Rivera", statement: "Music connects us all." },
+      { electionId: electionRecord.id, clubId: clubs[3].id, name: "Jamie Park", statement: "Melodies that inspire." },
+      { electionId: electionRecord.id, clubId: clubs[4].id, name: "Drew Kim", statement: "Art is expression." },
+      { electionId: electionRecord.id, clubId: clubs[4].id, name: "Quinn Adams", statement: "Colors speak louder than words." },
+      { electionId: electionRecord.id, clubId: clubs[5].id, name: "Peyton Brooks", statement: "Sports build character." },
+      { electionId: electionRecord.id, clubId: clubs[5].id, name: "Reese Foster", statement: "Teamwork makes the dream work." },
     ])
     .returning();
 

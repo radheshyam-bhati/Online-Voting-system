@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Vote, Calendar, ArrowLeft, BarChart2, Users, Trophy, AlertCircle, AlertTriangle } from "lucide-react";
 import { getElectionResults } from "@/lib/actions/elections";
+import { isCandidateProfileVisible } from "@/lib/actions/elections";
 
 interface ResultsPageProps {
   params: Promise<{ electionId: string }>;
@@ -94,7 +95,7 @@ async function ResultsContent({ params }: ResultsPageProps) {
                           </p>
                         </div>
                       </div>
-                      {index === 0 && !clubResult.isTied && (
+                      {index === 0 && (
                         <Badge variant="default" className="gap-1">
                           <Trophy className="w-3.5 h-3.5" />
                           Winner
@@ -117,12 +118,13 @@ async function ResultsContent({ params }: ResultsPageProps) {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-{clubResult.candidates.map((candidate, candidateIndex) => {
+                      {clubResult.candidates.map((candidate, candidateIndex) => {
                         const percentage = clubResult.totalVotes > 0 
                           ? ((candidate.voteCount || 0) / clubResult.totalVotes) * 100 
                           : 0;
                         const isTied = clubResult.isTied && clubResult.tiedCandidates?.includes(candidate.id);
                         const isWinner = candidateIndex === 0 && clubResult.totalVotes > 0 && !clubResult.isTied;
+                        const profileVisible = isCandidateProfileVisible(resultsData.election.status);
 
                         return (
                           <div key={candidate.id} className={`p-4 rounded-lg ${isTied ? "bg-amber-50 border-2 border-amber-300" : isWinner ? "bg-primary/5 border border-primary/20" : "bg-card border border-border"}`}>
@@ -139,24 +141,17 @@ async function ResultsContent({ params }: ResultsPageProps) {
                                 )}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <h4 className="font-medium">{candidate.name}</h4>
-                                  {isTied && (
-                                    <Badge variant="outline" className="gap-1 text-xs border-amber-300 text-amber-800 bg-amber-50">
-                                      <AlertTriangle className="w-3 h-3" />
-                                      Tied
-                                    </Badge>
-                                  )}
-                                  {isWinner && (
-                                    <Badge variant="default" className="gap-1 text-xs">
-                                      <Trophy className="w-3 h-3" />
-                                      Winner
-                                    </Badge>
-                                  )}
-                                </div>
-                                <p className="text-sm text-muted-foreground line-clamp-2">
-                                  {candidate.publicStatement || "No statement provided"}
-                                </p>
+                                <h4 className="font-heading font-bold text-lg">{candidate.name}</h4>
+                                {profileVisible && (
+                                  <p className="text-sm text-muted-foreground line-clamp-2">
+                                    {candidate.publicStatement || "No statement provided"}
+                                  </p>
+                                )}
+                                {!profileVisible && (
+                                  <p className="text-sm text-muted-foreground line-clamp-2 italic">
+                                    Photo and statement available once voting opens
+                                  </p>
+                                )}
                               </div>
                               <div className="flex items-center gap-4 text-right">
                                 <div className="w-32">

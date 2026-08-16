@@ -19,7 +19,6 @@ interface VoteFormProps {
     name: string; 
     publicStatement: string | null; 
     photoUrl: string | null; 
-    statementStatus: string 
   }>;
 }
 
@@ -108,11 +107,8 @@ export function VoteForm({ electionId, clubId, clubName, candidates }: VoteFormP
                 <div className="flex-1 min-w-0">
                   <h4 className="font-heading font-bold text-lg">{candidate.name}</h4>
                   <p className="text-sm text-muted-foreground line-clamp-3">
-                    {candidate.publicStatement || candidate.statementStatus === "pending" ? "Statement coming soon..." : candidate.publicStatement}
+                    {candidate.publicStatement || "No statement provided"}
                   </p>
-                  {candidate.statementStatus === "pending" && (
-                    <Badge variant="outline" className="mt-2 text-xs">Pending Review</Badge>
-                  )}
                 </div>
                 <div className="flex-shrink-0">
                   {selectedCandidate === candidate.id ? (

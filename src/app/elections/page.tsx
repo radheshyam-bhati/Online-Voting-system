@@ -59,7 +59,7 @@ export default async function ElectionsDashboard() {
           </div>
         ) : (
           <div className="space-y-8">
-            {elections.map((election: { id: string; name: string; status: string; multiCampus: boolean; startsAt: Date | null; endsAt: Date | null; nominationStartsAt: Date | null; nominationEndsAt: Date | null; clubs: Array<{ id: string; name: string; campusId: string | null; candidates: Array<{ id: string; name: string; statement: string | null; photoUrl: string | null; statementStatus: string }>; hasVoted: boolean; votedCandidateId: string | null }>; userNominatedFor: string | null }) => (
+            {elections.map((election: { id: string; name: string; status: string; multiCampus: boolean; startsAt: Date | null; endsAt: Date | null; nominationStartsAt: Date | null; nominationEndsAt: Date | null; clubs: Array<{ id: string; name: string; campusId: string | null; candidates: Array<{ id: string; name: string; statement: string | null; photoUrl: string | null }>; hasVoted: boolean; votedCandidateId: string | null }>; userNominatedFor: string | null }) => (
               <Card key={election.id} className="border-accent/30">
                 <CardHeader className="pb-2">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -100,7 +100,7 @@ export default async function ElectionsDashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {election.clubs.map((club: { id: string; name: string; campusId: string | null; candidates: Array<{ id: string; name: string; statement: string | null; photoUrl: string | null; statementStatus: string }>; hasVoted: boolean; votedCandidateId: string | null }) => (
+                    {election.clubs.map((club: { id: string; name: string; campusId: string | null; candidates: Array<{ id: string; name: string; statement: string | null; photoUrl: string | null }>; hasVoted: boolean; votedCandidateId: string | null }) => (
                       <div key={club.id} className="border border-border rounded-lg p-4">
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                           <div className="flex items-center gap-4">
@@ -150,17 +150,14 @@ export default async function ElectionsDashboard() {
 
                         {club.candidates.length > 0 && (
                           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                            {club.candidates.map((candidate: { id: string; name: string; statement: string | null; photoUrl: string | null; statementStatus: string }) => (
+                            {club.candidates.map((candidate: { id: string; name: string; statement: string | null; photoUrl: string | null }) => (
                               <div key={candidate.id} className={`p-3 rounded-lg border ${
                                 club.votedCandidateId === candidate.id ? "border-primary bg-primary/5" : "border-border bg-card"
                               }`}>
                                 <div className="font-medium">{candidate.name}</div>
                                 <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
-                                  {candidate.statement || candidate.statementStatus === "pending" ? "Statement coming soon" : candidate.statement}
+                                  {candidate.statement || "No statement provided"}
                                 </p>
-                                {candidate.statementStatus === "pending" && (
-                                  <Badge variant="outline" className="mt-2 text-xs">Pending Review</Badge>
-                                )}
                                 {club.votedCandidateId === candidate.id && (
                                   <div className="mt-2 text-sm text-primary font-medium flex items-center gap-1">
                                     <CheckCircle className="w-3.5 h-3.5" />

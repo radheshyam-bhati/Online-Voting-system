@@ -5,6 +5,7 @@ import { eq, desc, and, isNull, gte, lte, sql, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
+import { isCandidateProfileVisible } from "@/lib/candidate-visibility";
 
 async function getSchema() {
   const { 
@@ -89,30 +90,30 @@ export async function getElectionDashboard() {
 
     const votedClubIds = new Set(userVotes.map(v => v.clubId));
 
-    // Get candidates for each club
-    const clubsWithCandidates = await Promise.all(userClubs.map(async (club) => {
-      const candidates = await db
-        .select({
-          id: candidate.id,
-          name: candidate.name,
-          statement: candidate.publicStatement,
-          photoUrl: candidate.photoUrl,
-          statementStatus: candidate.statementStatus,
-        })
-        .from(candidate)
-        .where(and(eq(candidate.clubId, club.id), eq(candidate.electionId, election.id)))
-        .orderBy(candidate.createdAt);
+// Get candidates for each club
+      const clubsWithCandidates = await Promise.all(userClubs.map(async (club) => {
+        const candidates = await db
+          .select({
+            id: candidate.id,
+            name: candidate.name,
+            statement: candidate.publicStatement,
+            photoUrl: candidate.photoUrl,
+            profileVisible: isCandidateProfileVisible(election.status),
+          })
+          .from(candidate)
+          .where(and(eq(candidate.clubId, club.id), eq(candidate.electionId, election.id)))
+          .orderBy(candidate.createdAt);
 
-      const hasVoted = votedClubIds.has(club.id);
-      const votedCandidate = hasVoted ? userVotes.find(v => v.clubId === club.id) : null;
+        const hasVoted = votedClubIds.has(club.id);
+        const votedCandidate = hasVoted ? userVotes.find(v => v.clubId === club.id) : null;
 
-      return {
-        ...club,
-        candidates,
-        hasVoted,
-        votedCandidateId: votedCandidate?.candidateId || null,
-      };
-    }));
+        return {
+          ...club,
+          candidates,
+          hasVoted,
+          votedCandidateId: votedCandidate?.candidateId || null,
+        };
+      }));
 
     // Check if user has nominated themselves for this election
     const userNomination = await db
@@ -361,6 +362,7 @@ export async function getElectionResults(electionId: string) {
         publicStatement: candidate.publicStatement,
         photoUrl: candidate.photoUrl,
         voteCount: sql<number>`count(${vote.id})`,
+        profileVisible: isCandidateProfileVisible(electionData.status),
       })
       .from(candidate)
       .leftJoin(
