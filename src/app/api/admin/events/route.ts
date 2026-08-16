@@ -2,23 +2,29 @@ import { getDb } from "@/db";
 import { eq, desc, and, isNull, gte, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
+import { checkAdminPermission } from "@/lib/permissions";
 
 async function getSchema() {
   const { event } = await import("@/db/schema");
   return { event };
 }
 
-async function checkAdmin() {
+async function checkPermission(requiredFunction: "members" | "content" | "elections" | "admins", targetCampusId?: string | null) {
   const session = await auth();
   if (!session?.user?.isAdmin) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
+    return { error: Response.json({ error: "Unauthorized" }, { status: 401 }), session: null, permission: null };
   }
-  return session;
+
+  const permission = await checkAdminPermission(requiredFunction, targetCampusId);
+  if (!permission.allowed) {
+    return { error: Response.json({ error: "Forbidden: Insufficient permissions" }, { status: 403 }), session, permission };
+  }
+  return { error: null, session, permission };
 }
 
 export async function GET() {
-  const session = await checkAdmin();
-  if (session instanceof Response) return session;
+  const { error, session } = await checkPermission("content");
+  if (error) return error;
 
   const db = getDb();
   const { event } = await getSchema();
@@ -53,8 +59,8 @@ const createEventSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const session = await checkAdmin();
-  if (session instanceof Response) return session;
+  const { error, session } = await checkPermission("content");
+  if (error) return error;
 
   const body = await request.json();
   const parsed = createEventSchema.safeParse(body);
@@ -70,7 +76,7 @@ export async function POST(request: Request) {
     ...parsed.data,
     startsAt: new Date(parsed.data.startsAt),
     endsAt: parsed.data.endsAt ? new Date(parsed.data.endsAt) : null,
-    createdBy: session.user.id,
+    createdBy: session!.user.id,
   });
 
   return Response.json({ success: true });

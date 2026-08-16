@@ -1,23 +1,29 @@
 import { getDb } from "@/db";
 import { eq, desc, and, isNull, gte, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
+import { checkAdminPermission } from "@/lib/permissions";
 
 async function getSchema() {
   const { appUser, membership, joinRequest, event, announcement, election, campus } = await import("@/db/schema");
   return { appUser, membership, joinRequest, event, announcement, election, campus };
 }
 
-async function checkAdmin() {
+async function checkPermission(requiredFunction: "members" | "content" | "elections" | "admins", targetCampusId?: string | null) {
   const session = await auth();
   if (!session?.user?.isAdmin) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
-  return session;
+
+  const permission = await checkAdminPermission(requiredFunction, targetCampusId);
+  if (!permission.allowed) {
+    return Response.json({ error: "Forbidden: Insufficient permissions" }, { status: 403 });
+  }
+  return null;
 }
 
 export async function GET() {
-  const session = await checkAdmin();
-  if (session instanceof Response) return session;
+  const permissionError = await checkPermission("members");
+  if (permissionError) return permissionError;
 
   const db = getDb();
   const { appUser, membership } = await getSchema();

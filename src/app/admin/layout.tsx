@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Users, Calendar, Bell, Vote, LayoutDashboard, LogOut, ChevronRight } from "lucide-react";
+import { Users, Calendar, Bell, Vote, LayoutDashboard, LogOut, Shield, ChevronRight } from "lucide-react";
 
 const navigation = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { name: "Members", href: "/admin/members", icon: Users },
   { name: "Content", href: "/admin/content", icon: Calendar },
   { name: "Elections", href: "/admin/elections", icon: Vote },
+  { name: "Admins", href: "/admin/admins", icon: Shield },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

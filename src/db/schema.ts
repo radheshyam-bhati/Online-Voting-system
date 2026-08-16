@@ -49,6 +49,16 @@ export const auditActionEnum = pgEnum("audit_action", [
   "election_created",
   "election_scheduled",
   "vote_cast",
+  "admin_granted",
+  "admin_permissions_changed",
+  "admin_revoked",
+]);
+
+export const adminFunctionEnum = pgEnum("admin_function", [
+  "members",
+  "content",
+  "elections",
+  "admins",
 ]);
 
 export const appUser = pgTable("app_user", {
@@ -269,3 +279,29 @@ export const auditLog = pgTable("audit_log", {
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const adminGrant = pgTable("admin_grant", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => appUser.id, { onDelete: "cascade" }),
+  isSuperAdmin: boolean("is_super_admin").notNull().default(false),
+  grantedBy: uuid("granted_by").references(() => appUser.id, { onDelete: "set null" }),
+  grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, (table) => ({
+  uniqueUser: uniqueIndex("uq_admin_grant_user").on(table.userId).where(sql`${table.revokedAt} IS NULL`),
+}));
+
+export const adminPermission = pgTable("admin_permission", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  adminGrantId: uuid("admin_grant_id")
+    .notNull()
+    .references(() => adminGrant.id, { onDelete: "cascade" }),
+  function: adminFunctionEnum("function").notNull(),
+  campusId: uuid("campus_id").references(() => campus.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  uniquePermission: uniqueIndex("uq_admin_permission").on(table.adminGrantId, table.function, table.campusId),
+  grantIndex: index("idx_admin_permission_grant").on(table.adminGrantId),
+}));
