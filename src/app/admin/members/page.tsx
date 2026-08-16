@@ -54,19 +54,26 @@ export default function AdminMembersPage() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ success: number; errors: Array<{ row: number; error: string; data: unknown }> } | null>(null);
   const [importFile, setImportFile] = useState<File | null>(null);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [addForm, setAddForm] = useState({ name: "", email: "", enrollmentNo: "", city: "", department: "" });
+  const [campuses, setCampuses] = useState<Array<{ id: string; name: string }>>([]);
 
   const fetchData = async () => {
     try {
-      const [membersRes, requestsRes] = await Promise.all([
+      const [membersRes, requestsRes, campusesRes] = await Promise.all([
         fetch("/api/admin/members"),
         fetch("/api/admin/join-requests"),
+        fetch("/api/admin/campuses"),
       ]);
-      const [membersData, requestsData] = await Promise.all([
+      const [membersData, requestsData, campusesData] = await Promise.all([
         membersRes.json(),
         requestsRes.json(),
+        campusesRes.json(),
       ]);
       setMembers(membersData);
       setJoinRequests(requestsData);
+      setCampuses(campusesData);
     } catch (error) {
       console.error("Failed to fetch data:", error);
     } finally {
@@ -113,7 +120,7 @@ export default function AdminMembersPage() {
       });
       if (res.ok) {
         setJoinRequests(joinRequests.map((r) => (r.id === requestId ? { ...r, status: action === "approve" ? "approved" : "declined" } : r)));
-        fetchData(); // Refresh members list too
+        fetchData();
       }
     } catch (error) {
       console.error("Failed to review request:", error);
@@ -143,7 +150,7 @@ export default function AdminMembersPage() {
       const data = await res.json();
       setImportResult(data);
       if (data.success > 0) {
-        fetchData(); // Refresh members list
+        fetchData();
         setImportFile(null);
       }
     } catch (error) {
@@ -154,8 +161,38 @@ export default function AdminMembersPage() {
     }
   };
 
+  const handleAddStudent = async () => {
+    if (!addForm.name || !addForm.email || !addForm.enrollmentNo) return;
+    setAdding(true);
+    try {
+      const res = await fetch("/api/admin/students/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: addForm.name,
+          email: addForm.email,
+          enrollmentNo: addForm.enrollmentNo,
+          city: addForm.city,
+          department: addForm.department,
+        }),
+      });
+      const data = await res.json();
+      if (data.success > 0) {
+        fetchData();
+        setAddDialogOpen(false);
+        setAddForm({ name: "", email: "", enrollmentNo: "", city: "", department: "" });
+      } else {
+        alert(data.error || "Failed to add student");
+      }
+    } catch (error) {
+      console.error("Failed to add student:", error);
+    } finally {
+      setAdding(false);
+    }
+  };
+
   const downloadTemplate = () => {
-    const csvContent = "email,fullName,enrollmentNo,campusId,password,roleTitle,isPublic\nstudent@college.edu,John Doe,STU2024001,,password123,,\n";
+    const csvContent = "Name,Email Address,City,Department,Enrollment ID\n";
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -185,6 +222,86 @@ export default function AdminMembersPage() {
             <Download className="w-4 h-4" />
             Download Template
           </Button>
+          <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+            <DialogTrigger>
+              <Button className="gap-2">
+                <Users className="w-4 h-4" />
+                Add Student
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Add Student</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="addName">Name</Label>
+                  <Input
+                    id="addName"
+                    value={addForm.name}
+                    onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
+                    placeholder="John Doe"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="addEmail">Email Address</Label>
+                  <Input
+                    id="addEmail"
+                    type="email"
+                    value={addForm.email}
+                    onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
+                    placeholder="john.doe@college.edu"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="addEnrollmentNo">Enrollment ID</Label>
+                  <Input
+                    id="addEnrollmentNo"
+                    value={addForm.enrollmentNo}
+                    onChange={(e) => setAddForm({ ...addForm, enrollmentNo: e.target.value })}
+                    placeholder="STU2024001"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="addCity">City / Campus</Label>
+                  <Select value={addForm.city} onValueChange={(v) => setAddForm({ ...addForm, city: v || "" })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select city/campus" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Select campus...</SelectItem>
+                      {campuses.map((campus) => (
+                        <SelectItem key={campus.id} value={campus.name}>
+                          {campus.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="addDepartment">Department (Optional)</Label>
+                  <Input
+                    id="addDepartment"
+                    value={addForm.department}
+                    onChange={(e) => setAddForm({ ...addForm, department: e.target.value })}
+                    placeholder="Computer Science"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-4">
+                  <Button variant="outline" onClick={() => { setAddDialogOpen(false); setAddForm({ name: "", email: "", enrollmentNo: "", city: "", department: "" }); }}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleAddStudent} disabled={adding || !addForm.name || !addForm.email || !addForm.enrollmentNo}>
+                    {adding && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                    Add Student
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
           <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
             <DialogTrigger>
               <Button className="gap-2">
@@ -198,8 +315,8 @@ export default function AdminMembersPage() {
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="text-sm text-muted-foreground">
-                  <p>Upload a CSV file with student data. Required columns: email, fullName, enrollmentNo</p>
-                  <p className="mt-2">Optional columns: campusId, password, roleTitle, isPublic</p>
+                  <p>Upload a CSV file with student data. Required columns: Name, Email Address, City, Department, Enrollment ID</p>
+                  <p className="mt-2">City will be matched to existing campuses or created automatically. Department is optional.</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="csvFile">CSV File</Label>

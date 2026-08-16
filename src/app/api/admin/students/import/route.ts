@@ -21,153 +21,245 @@ const studentSchema = z.object({
   email: z.string().email("Invalid email"),
   fullName: z.string().min(2, "Name must be at least 2 characters"),
   enrollmentNo: z.string().min(1, "Enrollment number is required"),
-  campusId: z.string().uuid("Invalid campus ID").optional().nullable(),
-  password: z.string().min(8, "Password must be at least 8 characters").optional(),
-  roleTitle: z.string().optional(),
-  isPublic: z.boolean().optional(),
+  city: z.string().optional(),
+  department: z.string().optional(),
 });
+
+async function processStudent(
+  db: ReturnType<typeof getDb>,
+  parsed: z.infer<typeof studentSchema>,
+  campuses: Array<{ id: string; name: string }>
+) {
+  const { appUser, campus } = await import("@/db/schema");
+  const { eq } = await import("drizzle-orm");
+
+  // Check if email or enrollment already exists
+  const [existingEmail] = await db
+    .select({ id: appUser.id })
+    .from(appUser)
+    .where(eq(appUser.email, parsed.email))
+    .limit(1);
+
+  if (existingEmail) {
+    return { error: "Email already exists" };
+  }
+
+  const [existingEnrollment] = await db
+    .select({ id: appUser.id })
+    .from(appUser)
+    .where(eq(appUser.enrollmentNo, parsed.enrollmentNo))
+    .limit(1);
+
+  if (existingEnrollment) {
+    return { error: "Enrollment number already exists" };
+  }
+
+  // Resolve campus from city name
+  let campusId: string | null = null;
+  if (parsed.city && parsed.city.trim() !== "") {
+    const campusMatch = campuses.find(c => c.name.toLowerCase() === parsed.city!.trim().toLowerCase());
+    if (campusMatch) {
+      campusId = campusMatch.id;
+    } else {
+      // Create campus if it doesn't exist
+      const [newCampus] = await db
+        .insert(campus)
+        .values({ name: parsed.city!.trim() })
+        .returning();
+      campusId = newCampus.id;
+    }
+  }
+
+  // Generate default password
+  const { hashPassword } = await import("@/lib/auth-utils");
+  const password = "changeme123";
+  const passwordHash = await hashPassword(password);
+
+  const [newUser] = await db
+    .insert(appUser)
+    .values({
+      email: parsed.email,
+      passwordHash,
+      fullName: parsed.fullName,
+      enrollmentNo: parsed.enrollmentNo,
+      campusId,
+      department: parsed.department || null,
+      isActive: true,
+      isAdmin: false,
+    })
+    .returning();
+
+  return { success: true, user: newUser };
+}
+
+async function processCsvRow(
+  db: ReturnType<typeof getDb>,
+  row: Record<string, string>,
+  rowNum: number,
+  campuses: Array<{ id: string; name: string }>
+): Promise<{ success: true } | { success: false; error: string; data?: unknown }> {
+  const { appUser, campus } = await import("@/db/schema");
+  const { eq } = await import("drizzle-orm");
+
+  try {
+    // Map the actual CSV columns: Name, Email Address, City, Department, Enrollment ID
+    const parsed = studentSchema.safeParse({
+      email: row["Email Address"]?.trim() || row.email?.trim(),
+      fullName: row["Name"]?.trim() || row.fullName?.trim(),
+      enrollmentNo: row["Enrollment ID"]?.trim() || row.enrollmentNo?.trim() || row.enrollment?.trim() || row.studentId?.trim(),
+      city: row["City"]?.trim() || row.city?.trim() || "",
+      department: row["Department"]?.trim() || row.department?.trim() || "",
+    });
+
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0].message, data: row };
+    }
+
+    // Check if email or enrollment already exists
+    const [existingEmail] = await db
+      .select({ id: appUser.id })
+      .from(appUser)
+      .where(eq(appUser.email, parsed.data.email))
+      .limit(1);
+
+    if (existingEmail) {
+      return { success: false, error: "Email already exists", data: row };
+    }
+
+    const [existingEnrollment] = await db
+      .select({ id: appUser.id })
+      .from(appUser)
+      .where(eq(appUser.enrollmentNo, parsed.data.enrollmentNo))
+      .limit(1);
+
+    if (existingEnrollment) {
+      return { success: false, error: "Enrollment number already exists", data: row };
+    }
+
+    // Resolve campus from city name
+    let campusId: string | null = null;
+    if (parsed.data.city) {
+      const campusMatch = campuses.find(c => c.name.toLowerCase() === parsed.data.city!.toLowerCase());
+      if (campusMatch) {
+        campusId = campusMatch.id;
+      } else {
+        // Create campus if it doesn't exist
+        const [newCampus] = await db
+          .insert(campus)
+          .values({ name: parsed.data.city! })
+          .returning();
+        campusId = newCampus.id;
+      }
+    }
+
+    // Generate default password
+    const { hashPassword } = await import("@/lib/auth-utils");
+    const password = "changeme123";
+    const passwordHash = await hashPassword(password);
+
+    await db.insert(appUser).values({
+      email: parsed.data.email,
+      passwordHash: await hashPassword(password),
+      fullName: parsed.data.fullName,
+      enrollmentNo: parsed.data.enrollmentNo,
+      campusId,
+      department: parsed.data.department || null,
+      isActive: true,
+      isAdmin: false,
+    });
+
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error", data: row };
+  }
+}
 
 export async function POST(request: Request) {
   const session = await checkAdmin();
   if (session instanceof Response) return session;
 
   try {
-    const formData = await request.formData();
-    const file = formData.get("file") as File;
+    const contentType = request.headers.get("content-type") || "";
+    
+    if (contentType.includes("multipart/form-data")) {
+      // Handle CSV file upload
+      const formData = await request.formData();
+      const file = formData.get("file") as File;
 
-    if (!file) {
-      return Response.json({ error: "No file uploaded" }, { status: 400 });
-    }
+      if (!file) {
+        return Response.json({ error: "No file uploaded" }, { status: 400 });
+      }
 
-    if (!file.name.endsWith(".csv")) {
-      return Response.json({ error: "File must be a CSV" }, { status: 400 });
-    }
+      if (!file.name.endsWith(".csv")) {
+        return Response.json({ error: "File must be a CSV" }, { status: 400 });
+      }
 
-    const text = await file.text();
-    const records = parse(text, {
-      columns: true,
-      skip_empty_lines: true,
-      trim: true,
-    }) as Record<string, string>[];
+      const text = await file.text();
+      const records = parse(text, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      }) as Record<string, string>[];
 
-    const results = {
-      success: 0,
-      errors: [] as Array<{ row: number; error: string; data: unknown }>,
-    };
+      const results = {
+        success: 0,
+        errors: [] as Array<{ row: number; error: string; data: unknown }>,
+      };
 
-    const db = getDb();
-    const { appUser, membership, campus } = await getSchema();
+      const db = getDb();
+      const { campus } = await getSchema();
 
-    // Get all campuses for validation
-    const campuses = await db.select({ id: campus.id, name: campus.name }).from(campus);
+      // Get all campuses for validation
+      const campuses = await db.select({ id: campus.id, name: campus.name }).from(campus);
 
-    for (let i = 0; i < records.length; i++) {
-      const row = records[i];
-      const rowNum = i + 2; // +2 because header is row 1, 0-indexed
+      for (let i = 0; i < records.length; i++) {
+        const row = records[i];
+        const rowNum = i + 2; // +2 because header is row 1, 0-indexed
 
-      try {
-        const parsed = studentSchema.safeParse({
-          email: row.email?.trim(),
-          fullName: row.fullName?.trim() || row.name?.trim(),
-          enrollmentNo: row.enrollmentNo?.trim() || row.enrollment?.trim() || row.studentId?.trim(),
-          campusId: row.campusId?.trim() || null,
-          password: row.password?.trim() || undefined,
-          roleTitle: row.roleTitle?.trim() || row.role?.trim() || undefined,
-          isPublic: row.isPublic?.toLowerCase() === "true" || row.public?.toLowerCase() === "true",
-        });
-
-        if (!parsed.success) {
+        const result = await processCsvRow(db, row, rowNum, campuses);
+        if (!result.success) {
           results.errors.push({
-            row: rowNum,
-            error: parsed.error.issues[0].message,
-            data: row,
+            row: result.data ? rowNum : 0,
+            error: result.error,
+            data: result.data,
           });
           continue;
-        }
-
-        // Check if email or enrollment already exists
-        const [existingEmail] = await db
-          .select({ id: appUser.id })
-          .from(appUser)
-          .where(eq(appUser.email, parsed.data.email))
-          .limit(1);
-
-        if (existingEmail) {
-          results.errors.push({
-            row: rowNum,
-            error: "Email already exists",
-            data: row,
-          });
-          continue;
-        }
-
-        const [existingEnrollment] = await db
-          .select({ id: appUser.id })
-          .from(appUser)
-          .where(eq(appUser.enrollmentNo, parsed.data.enrollmentNo))
-          .limit(1);
-
-        if (existingEnrollment) {
-          results.errors.push({
-            row: rowNum,
-            error: "Enrollment number already exists",
-            data: row,
-          });
-          continue;
-        }
-
-        // Validate campus if provided
-        if (parsed.data.campusId) {
-          const campusExists = campuses.find(c => c.id === parsed.data.campusId);
-          if (!campusExists) {
-            results.errors.push({
-              row: rowNum,
-              error: "Invalid campus ID",
-              data: row,
-            });
-            continue;
-          }
-        }
-
-        // Generate default password if not provided
-        const { hashPassword } = await import("@/lib/auth-utils");
-        const password = parsed.data.password || "changeme123";
-        const passwordHash = await hashPassword(password);
-
-        const [newUser] = await db
-          .insert(appUser)
-          .values({
-            email: parsed.data.email,
-            passwordHash,
-            fullName: parsed.data.fullName,
-            enrollmentNo: parsed.data.enrollmentNo,
-            campusId: parsed.data.campusId || null,
-            isActive: true,
-            isAdmin: false,
-          })
-          .returning();
-
-        // Create membership if role provided
-        if (parsed.data.roleTitle) {
-          await db.insert(membership).values({
-            userId: newUser.id,
-            roleTitle: parsed.data.roleTitle,
-            displayOrder: 999,
-            isPublic: parsed.data.isPublic || false,
-          });
         }
 
         results.success++;
-      } catch (error) {
-        results.errors.push({
-          row: rowNum,
-          error: error instanceof Error ? error.message : "Unknown error",
-          data: row,
-        });
       }
-    }
 
-    return Response.json(results);
+      return Response.json(results);
+    } else if (contentType.includes("application/json")) {
+      // Handle single student JSON request
+      const body = await request.json();
+      const parsed = studentSchema.safeParse({
+        email: body.email?.trim(),
+        fullName: body.name?.trim(),
+        enrollmentNo: body.enrollmentNo?.trim(),
+        city: body.city?.trim() || "",
+        department: body.department?.trim() || "",
+      });
+
+      if (!parsed.success) {
+        return Response.json({ error: parsed.error.issues[0].message }, { status: 400 });
+      }
+
+      const db = getDb();
+      const { appUser, membership, campus } = await getSchema();
+
+      // Get all campuses for validation
+      const campuses = await db.select({ id: campus.id, name: campus.name }).from(campus);
+
+      const result = await processStudent(db, parsed.data, campuses);
+      if ("error" in result) {
+        return Response.json({ error: result.error }, { status: 400 });
+      }
+
+      return Response.json({ success: 1 });
+    } else {
+      return Response.json({ error: "Invalid content type" }, { status: 400 });
+    }
   } catch (error) {
     return Response.json(
       { error: error instanceof Error ? error.message : "Import failed" },
