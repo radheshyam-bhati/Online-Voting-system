@@ -25,6 +25,38 @@ export function rateLimit(
   return { success: true, remaining: maxRequests - record.count, resetTime: record.resetTime };
 }
 
+// Rate limit by both IP and enrollment number (dual protection)
+export function rateLimitDual(
+  ip: string,
+  enrollmentNo: string,
+  maxRequests: number = 5,
+  windowMs: number = 60 * 1000 // 1 minute
+): { success: boolean; remaining: number; resetTime: number; limitType: "ip" | "enrollment" | "none" } {
+  const now = Date.now();
+  
+  // Check IP rate limit
+  const ipRecord = rateLimitMap.get(`ip:${ip}`);
+  if (!ipRecord || Date.now() > ipRecord.resetTime) {
+    rateLimitMap.set(`ip:${ip}`, { count: 1, resetTime: now + windowMs });
+  } else if (ipRecord.count >= 5) {
+    return { success: false, remaining: 0, resetTime: ipRecord.resetTime, limitType: "ip" };
+  }
+  
+  // Check enrollment number rate limit
+  const enrollmentRecord = rateLimitMap.get(`enrollment:${enrollmentNo.toLowerCase()}`);
+  if (!enrollmentRecord || Date.now() > enrollmentRecord.resetTime) {
+    rateLimitMap.set(`enrollment:${enrollmentNo.toLowerCase()}`, { count: 1, resetTime: now + windowMs });
+  } else if (enrollmentRecord.count >= 5) {
+    return { success: false, remaining: 0, resetTime: enrollmentRecord.resetTime, limitType: "enrollment" };
+  }
+  
+  // Increment both counters
+  rateLimitMap.set(`ip:${ip}`, { count: (rateLimitMap.get(`ip:${ip}`)?.count || 0) + 1, resetTime: now + windowMs });
+  rateLimitMap.set(`enrollment:${enrollmentNo.toLowerCase()}`, { count: (rateLimitMap.get(`enrollment:${enrollmentNo.toLowerCase()}`)?.count || 0) + 1, resetTime: now + windowMs });
+  
+  return { success: true, remaining: 5, resetTime: now + windowMs, limitType: "none" };
+}
+
 export function getClientIdentifier(request: NextRequest): string {
   // Use IP address as identifier
   const ip = request.headers.get("x-forwarded-for") || 

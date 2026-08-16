@@ -4,11 +4,12 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Vote, Plus, Settings, Users, List, BarChart2, ArrowRight, AlertCircle, X, Loader2, Ban } from "lucide-react";
+import { Vote, Plus, Settings, Users, List, BarChart2, ArrowRight, AlertCircle, X, Loader2, Ban, AlertTriangle, Gavel } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { voidElection } from "@/lib/actions/elections";
+import { resolveTie } from "@/lib/actions/elections";
 
 export default function AdminElectionsClient() {
   const [voidDialogOpen, setVoidDialogOpen] = useState(false);
@@ -16,6 +17,14 @@ export default function AdminElectionsClient() {
   const [voidReason, setVoidReason] = useState("");
   const [voiding, setVoiding] = useState(false);
   const [voidError, setVoidError] = useState("");
+
+  const [tieDialogOpen, setTieDialogOpen] = useState(false);
+  const [tyingElectionId, setTyingElectionId] = useState<string | null>(null);
+  const [tyingClubId, setTyingClubId] = useState<string | null>(null);
+  const [tyingCandidateId, setTyingCandidateId] = useState<string | null>(null);
+  const [tieReason, setTieReason] = useState("");
+  const [tying, setTying] = useState(false);
+  const [tieError, setTieError] = useState("");
 
   const handleVoidClick = (electionId: string) => {
     setVoidingElectionId(electionId);
@@ -46,6 +55,42 @@ export default function AdminElectionsClient() {
       setVoidError("Failed to void election");
     } finally {
       setVoiding(false);
+    }
+  };
+
+  const handleTieClick = (electionId: string, clubId: string, candidateId: string) => {
+    setTyingElectionId(electionId);
+    setTyingClubId(clubId);
+    setTyingCandidateId(candidateId);
+    setTieReason("");
+    setTieError("");
+    setTieDialogOpen(true);
+  };
+
+  const handleTieSubmit = async () => {
+    if (!tyingElectionId || !tyingClubId || !tyingCandidateId || !tieReason.trim()) {
+      setTieError("A reason is required");
+      return;
+    }
+
+    setTying(true);
+    setTieError("");
+
+    try {
+      const result = await resolveTie(tyingElectionId, tyingClubId, tyingCandidateId, tieReason);
+      if (result.error) {
+        setTieError(result.error);
+      } else {
+        setTieDialogOpen(false);
+        setTyingElectionId(null);
+        setTyingClubId(null);
+        setTyingCandidateId(null);
+        window.location.reload();
+      }
+    } catch {
+      setTieError("Failed to resolve tie");
+    } finally {
+      setTying(false);
     }
   };
 
@@ -100,6 +145,10 @@ export default function AdminElectionsClient() {
               <Button variant="destructive" className="gap-2" onClick={() => handleVoidClick("current-election-id")}>
                 <Ban className="w-4 h-4" />
                 Void Election
+              </Button>
+              <Button variant="outline" className="gap-2" onClick={() => handleTieClick("current-election-id", "current-club-id", "current-candidate-id")}>
+                <Gavel className="w-4 h-4" />
+                Resolve Tie
               </Button>
             </div>
           </CardContent>
@@ -195,6 +244,46 @@ export default function AdminElectionsClient() {
               <Button variant="destructive" onClick={handleVoidSubmit} disabled={voiding} className="gap-2">
                 {voiding && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {voiding ? "Voiding..." : "Void Election"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={tieDialogOpen} onOpenChange={setTieDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+              Resolve Tie
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to resolve this tie? This action will mark the selected candidate as the winner
+              for the tied club. This action cannot be undone.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="tieReason">Reason (required)</Label>
+              <Textarea
+                id="tieReason"
+                value={tieReason}
+                onChange={(e) => setTieReason(e.target.value)}
+                placeholder="Enter the reason for resolving this tie..."
+                rows={3}
+                disabled={tying}
+              />
+              {tieError && (
+                <p className="text-sm text-red-600">{tieError}</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 pt-4">
+              <Button variant="outline" onClick={() => setTieDialogOpen(false)} disabled={tying}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={handleTieSubmit} disabled={tying} className="gap-2">
+                {tying && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {tying ? "Resolving..." : "Resolve Tie"}
               </Button>
             </div>
           </div>

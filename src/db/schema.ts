@@ -55,6 +55,7 @@ export const auditActionEnum = pgEnum("audit_action", [
   "admin_revoked",
   "vote_invalidated",
   "election_voided",
+  "tie_resolved",
 ]);
 
 export const adminFunctionEnum = pgEnum("admin_function", [
@@ -180,8 +181,10 @@ export const election = pgTable("election", {
   voidedBy: uuid("voided_by").references(() => appUser.id, { onDelete: "set null" }),
   voidedAt: timestamp("voided_at", { withTimezone: true }),
   voidReason: text("void_reason"),
+  tieBreakPolicy: text("tie_break_policy").notNull().default("manual_review"),
 }, (table) => ({
   voidReasonCheck: check("void_reason_required_when_voided", sql`(${table.status}::text <> 'voided') OR (${table.voidReason} IS NOT NULL AND ${table.voidReason} <> '')`),
+  tieBreakPolicyCheck: check("tie_break_policy_valid", sql`${table.tieBreakPolicy} IN ('manual_review', 'revote')`),
 }));
 
 export const club = pgTable("club", {

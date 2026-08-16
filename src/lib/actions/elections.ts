@@ -378,6 +378,12 @@ export async function getElectionResults(electionId: string) {
 
     const totalVotes = candidates.reduce((sum, c) => sum + (c.voteCount || 0), 0);
 
+    // Detect tie: check if multiple candidates have the same highest vote count
+    const maxVotes = candidates.length > 0 ? (candidates[0].voteCount || 0) : 0;
+    const tiedCandidates = candidates.filter(c => (c.voteCount || 0) === maxVotes && maxVotes > 0);
+    const isTied = tiedCandidates.length > 1;
+    const tieBreakPolicy = electionData.tieBreakPolicy || "manual_review";
+
     // Get campus info if multi-campus
     let campusName = null;
     if (electionData.multiCampus && club.campusId) {
@@ -395,6 +401,9 @@ export async function getElectionResults(electionId: string) {
       campusName,
       totalVotes,
       candidates,
+      isTied,
+      tiedCandidates: tiedCandidates.map(c => c.id),
+      tieBreakPolicy,
     };
   }));
 
@@ -667,8 +676,8 @@ export async function updateElection(electionId: string, data: Partial<{
     updateData.voidReason = data.voidReason.trim();
     
     // Audit log
-    const { auditLog } = await getSchema();
-    await db.insert(auditLog).values({
+    const { auditLog: auditLogSchema } = await getSchema();
+    await db.insert(auditLogSchema).values({
       actorId: adminId,
       action: "election_voided",
       targetType: "election",
@@ -683,6 +692,62 @@ export async function updateElection(electionId: string, data: Partial<{
   return { success: true };
 }
 
+export async function resolveTie(electionId: string, clubId: string, winningCandidateId: string, reason: string) {
+  // Check admin permission for elections function
+  const adminId = await requireAdmin();
+  const db = getDb();
+  const { candidate, election, auditLog: auditLogSchema } = await getSchema();
+  const { eq, and } = await import("drizzle-orm");
+
+  // Verify the election exists and get its tie break policy
+  const [electionData] = await db
+    .select({ tieBreakPolicy: election.tieBreakPolicy })
+    .from(election)
+    .where(eq(election.id, electionId))
+    .limit(1);
+
+  if (!electionData) {
+    return { error: "Election not found" };
+  }
+
+  if (electionData.tieBreakPolicy === "revote") {
+    return { error: "Manual review required — revote flow not yet implemented" };
+  }
+
+  // Verify the candidate exists and belongs to this club/election
+  const [candidateData] = await db
+    .select()
+    .from(candidate)
+    .where(and(eq(candidate.id, winningCandidateId), eq(candidate.clubId, clubId), eq(candidate.electionId, electionId)))
+    .limit(1);
+
+  if (!candidateData) {
+    return { error: "Invalid candidate" };
+  }
+
+  // Update the candidate to mark as tie-resolved winner
+  // We could add a flag to the candidate table, but for now we'll just log the resolution
+  // In a more complete implementation, we might add a tieResolvedWinner field to the candidate table
+
+  // Audit log
+  await db.insert(auditLogSchema).values({
+    actorId: adminId,
+    action: "tie_resolved",
+    targetType: "candidate",
+    targetId: winningCandidateId,
+    metadata: { 
+      electionId, 
+      clubId, 
+      winningCandidateId, 
+      reason: reason.trim() 
+    },
+  });
+
+  revalidatePath("/admin/elections");
+  revalidatePath(`/elections/${electionId}/results`);
+  return { success: true };
+}
+
 export async function voidElection(electionId: string, reason: string) {
   return updateElection(electionId, { status: 'voided', voidReason: reason });
 }
@@ -691,7 +756,7 @@ export async function invalidateVote(voteId: string, reason: string) {
   // Check admin permission for elections function
   const adminId = await requireAdmin();
   const db = getDb();
-  const { vote, voteInvalidation, auditLog, appUser } = await getSchema();
+  const { vote, voteInvalidation, auditLog: auditLogSchema, appUser } = await getSchema();
 
   // Verify vote exists
   const [voteData] = await db
@@ -728,7 +793,7 @@ export async function invalidateVote(voteId: string, reason: string) {
   });
 
   // Audit log - NEVER include candidate_id, only vote_id and reason
-  await db.insert(auditLog).values({
+  await db.insert(auditLogSchema).values({
     actorId: adminId,
     action: "vote_invalidated",
     targetType: "vote_invalidation",

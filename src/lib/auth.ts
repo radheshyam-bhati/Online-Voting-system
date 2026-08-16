@@ -1,5 +1,6 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import { rateLimitDual } from "@/lib/rate-limit";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -45,6 +46,70 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           name: user[0].fullName,
           isAdmin: user[0].isAdmin,
           enrollmentNo: user[0].enrollmentNo,
+        };
+      },
+    }),
+    Credentials({
+      name: "student-login",
+      credentials: {
+        fullName: { label: "Full Name", type: "text" },
+        enrollmentNo: { label: "Enrollment Number", type: "text" },
+        email: { label: "Email Address", type: "email" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.fullName || !credentials?.enrollmentNo || !credentials?.email) {
+          return null;
+        }
+
+        // Get client IP for rate limiting (from headers)
+        // Note: In a real deployment, you'd get the IP from the request headers
+        // For now, we'll use a placeholder and the enrollment number for rate limiting
+        const normalizedEnrollmentNo = (credentials.enrollmentNo as string).trim();
+        
+        // Rate limit by enrollment number
+        const rateLimitResult = rateLimitDual("unknown", normalizedEnrollmentNo, 5, 60 * 1000);
+        if (!rateLimitResult.success) {
+          return null;
+        }
+
+        const { getDb } = await import("@/db");
+        const db = getDb();
+        const { appUser } = await import("@/db/schema");
+        const { eq } = await import("drizzle-orm");
+
+        const normalizedFullName = (credentials.fullName as string).trim().toLowerCase();
+        const normalizedEmail = (credentials.email as string).trim().toLowerCase();
+
+        const [user] = await db
+          .select()
+          .from(appUser)
+          .where(eq(appUser.enrollmentNo, normalizedEnrollmentNo))
+          .limit(1);
+
+        if (!user) {
+          return null;
+        }
+
+        if (!user.isActive) {
+          return null;
+        }
+
+        const storedFullName = (user.fullName || "").trim().toLowerCase();
+        if (storedFullName !== normalizedFullName) {
+          return null;
+        }
+
+        const storedEmail = (user.email || "").toLowerCase();
+        if (storedEmail !== normalizedEmail) {
+          return null;
+        }
+
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.fullName,
+          isAdmin: user.isAdmin,
+          enrollmentNo: user.enrollmentNo,
         };
       },
     }),

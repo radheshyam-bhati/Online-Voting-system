@@ -5,7 +5,7 @@ import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Vote, Calendar, ArrowLeft, BarChart2, Users, Trophy } from "lucide-react";
+import { Vote, Calendar, ArrowLeft, BarChart2, Users, Trophy, AlertCircle, AlertTriangle } from "lucide-react";
 import { getElectionResults } from "@/lib/actions/elections";
 
 interface ResultsPageProps {
@@ -94,35 +94,59 @@ async function ResultsContent({ params }: ResultsPageProps) {
                           </p>
                         </div>
                       </div>
-                      {index === 0 && (
+                      {index === 0 && !clubResult.isTied && (
                         <Badge variant="default" className="gap-1">
                           <Trophy className="w-3.5 h-3.5" />
                           Winner
                         </Badge>
                       )}
+                      {clubResult.isTied && (
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="gap-1 border-amber-300 text-amber-800 bg-amber-50">
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            Tied
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">
+                            {clubResult.tieBreakPolicy === "revote" 
+                              ? "Manual review required — revote flow not yet implemented" 
+                              : "Pending manual resolution"}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      {clubResult.candidates.map((candidate, candidateIndex) => {
+{clubResult.candidates.map((candidate, candidateIndex) => {
                         const percentage = clubResult.totalVotes > 0 
                           ? ((candidate.voteCount || 0) / clubResult.totalVotes) * 100 
                           : 0;
-                        const isWinner = candidateIndex === 0 && clubResult.totalVotes > 0;
+                        const isTied = clubResult.isTied && clubResult.tiedCandidates?.includes(candidate.id);
+                        const isWinner = candidateIndex === 0 && clubResult.totalVotes > 0 && !clubResult.isTied;
 
                         return (
-                          <div key={candidate.id} className={`p-4 rounded-lg ${isWinner ? "bg-primary/5 border border-primary/20" : "bg-card border border-border"}`}>
+                          <div key={candidate.id} className={`p-4 rounded-lg ${isTied ? "bg-amber-50 border-2 border-amber-300" : isWinner ? "bg-primary/5 border border-primary/20" : "bg-card border border-border"}`}>
                             <div className="flex items-center gap-4">
                               <div className="flex-shrink-0 w-10 h-10 rounded-full border-2 flex items-center justify-center">
-                                {isWinner ? (
+                                {isTied ? (
+                                  <div className="w-5 h-5 rounded-full bg-amber-200 flex items-center justify-center">
+                                    <AlertTriangle className="w-4 h-4 text-amber-700" />
+                                  </div>
+                                ) : isWinner ? (
                                   <div className="w-5 h-5 rounded-full bg-accent" />
                                 ) : (
                                   <div className="w-5 h-5 rounded-full bg-primary/20" />
                                 )}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <h4 className="font-medium">{candidate.name}</h4>
+                                  {isTied && (
+                                    <Badge variant="outline" className="gap-1 text-xs border-amber-300 text-amber-800 bg-amber-50">
+                                      <AlertTriangle className="w-3 h-3" />
+                                      Tied
+                                    </Badge>
+                                  )}
                                   {isWinner && (
                                     <Badge variant="default" className="gap-1 text-xs">
                                       <Trophy className="w-3 h-3" />
