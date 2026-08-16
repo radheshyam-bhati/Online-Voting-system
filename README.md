@@ -94,6 +94,21 @@ npm run db:studio
 | Student | student1@college.edu | student123 |
 | Student | student2@college.edu | student123 |
 
+### Custom Admin Account (Recommended for Production)
+
+Set these environment variables in your `.env` file to create your own admin account during seeding:
+
+```env
+SEED_ADMIN_EMAIL="your-real-email@college.edu"
+SEED_ADMIN_PASSWORD="your-secure-password"
+SEED_ADMIN_NAME="Your Name"
+SEED_ADMIN_ENROLLMENT="YOUR_ENROLLMENT"
+```
+
+If not set, defaults to `admin@college.edu` / `admin123` / `Admin User` / `ADMIN001`.
+
+**Important:** After seeding with your custom credentials, you can log in at `/login` using your real email and password.
+
 ## Project Structure
 
 ```

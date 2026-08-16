@@ -27,14 +27,18 @@ async function seed() {
   console.log("Created campuses:", campuses.length);
 
   // Create admin user
-  const adminPassword = await hashPassword("admin123");
+  const adminEmail = process.env.SEED_ADMIN_EMAIL || "admin@college.edu";
+  const adminPassword = await hashPassword(process.env.SEED_ADMIN_PASSWORD || "admin123");
+  const adminName = process.env.SEED_ADMIN_NAME || "Admin User";
+  const adminEnrollment = process.env.SEED_ADMIN_ENROLLMENT || "ADMIN001";
+  
   const [admin] = await db
     .insert(appUser)
     .values({
-      email: "admin@college.edu",
+      email: adminEmail,
       passwordHash: adminPassword,
-      fullName: "Admin User",
-      enrollmentNo: "ADMIN001",
+      fullName: adminName,
+      enrollmentNo: adminEnrollment,
       isAdmin: true,
       isActive: true,
     })
