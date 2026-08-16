@@ -34,8 +34,10 @@ export async function getElectionDashboard() {
   const db = getDb();
   const { election, club, candidate, electionVoter, vote } = await getSchema();
 
-  // Get active elections (nomination, scheduled, open)
-  const activeElections = await db
+  // Get elections visible to students: status != 'draft' AND has at least one club
+  // For nomination status, clubs can have zero candidates (self-nomination in progress)
+  // For scheduled/open/closed/published, clubs must have at least one candidate
+  const visibleElections = await db
     .select({
       id: election.id,
       name: election.name,
@@ -48,11 +50,16 @@ export async function getElectionDashboard() {
       resultsVisibility: election.resultsVisibility,
     })
     .from(election)
-    .where(sql`${election.status} IN ('nomination', 'scheduled', 'open')`)
+    .where(
+      and(
+        sql`${election.status} IN ('nomination', 'scheduled', 'open', 'closed', 'published')`,
+        sql`${election.id} IN (SELECT DISTINCT election_id FROM club WHERE election_id = ${election.id})`
+      )
+    )
     .orderBy(desc(election.createdAt));
 
   // For each election, get user's voting status per club
-  const dashboardData = await Promise.all(activeElections.map(async (election) => {
+  const dashboardData = await Promise.all(visibleElections.map(async (election) => {
     // Get clubs for this election that the user is eligible to vote in
     const userClubs = await db
       .select({
@@ -130,11 +137,17 @@ export async function getElectionForVoting(electionId: string) {
   const [electionData] = await db
     .select()
     .from(election)
-    .where(eq(election.id, electionId))
+    .where(
+      and(
+        eq(election.id, electionId),
+        sql`${election.status} IN ('nomination', 'scheduled', 'open', 'closed', 'published')`,
+        sql`${election.id} IN (SELECT DISTINCT election_id FROM club WHERE election_id = ${election.id})`
+      )
+    )
     .limit(1);
 
   if (!electionData) {
-    throw new Error("Election not found");
+    throw new Error("Election not found or not visible");
   }
 
   // Check if user is eligible to vote in this election
@@ -299,19 +312,26 @@ export async function getElectionResults(electionId: string) {
   const db = getDb();
   const { election, club, candidate, vote, campus } = await getSchema();
 
+  const session = await auth();
+  const isAdmin = session?.user?.isAdmin === true;
+
   const [electionData] = await db
     .select()
     .from(election)
-    .where(eq(election.id, electionId))
+    .where(
+      and(
+        eq(election.id, electionId),
+        isAdmin ? sql`true` : sql`${election.status} IN ('nomination', 'scheduled', 'open', 'closed', 'published')`,
+        isAdmin ? sql`true` : sql`${election.id} IN (SELECT DISTINCT election_id FROM club WHERE election_id = ${election.id})`
+      )
+    )
     .limit(1);
 
   if (!electionData) {
-    throw new Error("Election not found");
+    throw new Error("Election not found or not visible");
   }
 
   // Check if results are published or user is admin
-  const session = await auth();
-  const isAdmin = session?.user?.isAdmin === true;
   const canViewResults = electionData.resultsVisibility === "public" || 
     (electionData.resultsVisibility === "members_only" && session?.user?.id) || 
     isAdmin;
@@ -392,14 +412,23 @@ export async function submitNomination(electionId: string, clubId: string, answe
   const db = getDb();
   const { election, club, candidate, electionVoter, nominationQuestion, nominationAnswer } = await getSchema();
 
-  // Verify election is in nomination period
+  // Verify election is in nomination period and visible
   const [electionData] = await db
     .select()
     .from(election)
-    .where(eq(election.id, electionId))
+    .where(
+      and(
+        eq(election.id, electionId),
+        sql`${election.status} = 'nomination'`,
+        sql`${election.id} IN (SELECT DISTINCT election_id FROM club WHERE election_id = ${election.id})`
+      )
+    )
     .limit(1);
 
-  if (!electionData || electionData.status !== "nomination") {
+  if (!electionData) {
+    return { error: "Election not found or not visible" };
+  }
+  if (electionData.status !== "nomination") {
     return { error: "Nominations are not open" };
   }
 
@@ -545,6 +574,34 @@ export async function createElection(data: {
   return { success: true };
 }
 
+// Helper: check if election is visible to students (has clubs)
+async function hasClubs(db: ReturnType<typeof getDb>, electionId: string): Promise<boolean> {
+  const { club } = await import("@/db/schema");
+  const [result] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(club)
+    .where(eq(club.electionId, electionId));
+  return (result?.count || 0) > 0;
+}
+
+// Helper: check if election is visible to students
+export async function isElectionVisibleToStudents(electionId: string): Promise<boolean> {
+  const db = getDb();
+  const { election } = await import("@/db/schema");
+  const [electionData] = await db
+    .select({ status: election.status })
+    .from(election)
+    .where(eq(election.id, electionId))
+    .limit(1);
+
+  if (!electionData) return false;
+  if (electionData.status === 'draft') return false;
+  
+  // Check if has at least one club
+  const clubsCount = await hasClubs(db, electionId);
+  return clubsCount;
+}
+
 export async function updateElection(electionId: string, data: Partial<{
   name: string;
   multiCampus: boolean;
@@ -558,6 +615,14 @@ export async function updateElection(electionId: string, data: Partial<{
   const adminId = await requireAdmin();
   const db = getDb();
   const { election } = await getSchema();
+
+  // If transitioning to nomination, verify at least one club exists
+  if (data.status === 'nomination') {
+    const hasClubsResult = await hasClubs(db, electionId);
+    if (!hasClubsResult) {
+      return { error: "Cannot transition to nomination: election must have at least one club configured" };
+    }
+  }
 
   const updateData: Record<string, unknown> = { ...data };
   if (data.nominationStartsAt) updateData.nominationStartsAt = new Date(data.nominationStartsAt);
