@@ -13,12 +13,14 @@ async function getSchema() {
     candidate, 
     electionVoter, 
     vote, 
+    voteInvalidation,
     nominationQuestion, 
     nominationAnswer,
     appUser,
-    campus
+    campus,
+    auditLog
   } = await import("@/db/schema");
-  return { election, club, candidate, electionVoter, vote, nominationQuestion, nominationAnswer, appUser, campus };
+  return { election, club, candidate, electionVoter, vote, voteInvalidation, nominationQuestion, nominationAnswer, appUser, campus, auditLog };
 }
 
 async function requireAuth() {
@@ -310,7 +312,7 @@ export async function castVote(electionId: string, clubId: string, candidateId: 
 
 export async function getElectionResults(electionId: string) {
   const db = getDb();
-  const { election, club, candidate, vote, campus } = await getSchema();
+  const { election, club, candidate, vote, campus, voteInvalidation } = await getSchema();
 
   const session = await auth();
   const isAdmin = session?.user?.isAdmin === true;
@@ -361,7 +363,15 @@ export async function getElectionResults(electionId: string) {
         voteCount: sql<number>`count(${vote.id})`,
       })
       .from(candidate)
-      .leftJoin(vote, and(eq(vote.candidateId, candidate.id), eq(vote.clubId, club.id)))
+      .leftJoin(
+        vote,
+        and(
+          eq(vote.candidateId, candidate.id),
+          eq(vote.clubId, club.id),
+          // Exclude invalidated votes: only join votes that are NOT in vote_invalidation
+          sql`${vote.id} NOT IN (SELECT vote_id FROM ${voteInvalidation})`
+        )
+      )
       .where(and(eq(candidate.clubId, club.id), eq(candidate.electionId, electionId)))
       .groupBy(candidate.id)
       .orderBy(sql`count(${vote.id}) desc`);
@@ -631,6 +641,59 @@ export async function updateElection(electionId: string, data: Partial<{
   if (data.endsAt) updateData.endsAt = new Date(data.endsAt);
 
   await db.update(election).set(updateData).where(eq(election.id, electionId));
+
+  revalidatePath("/admin/elections");
+  return { success: true };
+}
+
+export async function invalidateVote(voteId: string, reason: string) {
+  // Check admin permission for elections function
+  const adminId = await requireAdmin();
+  const db = getDb();
+  const { vote, voteInvalidation, auditLog, appUser } = await getSchema();
+
+  // Verify vote exists
+  const [voteData] = await db
+    .select()
+    .from(vote)
+    .where(eq(vote.id, voteId))
+    .limit(1);
+
+  if (!voteData) {
+    return { error: "Vote not found" };
+  }
+
+  // Check if already invalidated
+  const [existingInvalidation] = await db
+    .select()
+    .from(voteInvalidation)
+    .where(eq(voteInvalidation.voteId, voteId))
+    .limit(1);
+
+  if (existingInvalidation) {
+    return { error: "Vote already invalidated" };
+  }
+
+  // Validate reason
+  if (!reason || reason.trim().length === 0) {
+    return { error: "Reason is required" };
+  }
+
+  // Create invalidation record
+  await db.insert(voteInvalidation).values({
+    voteId,
+    invalidatedBy: adminId,
+    reason: reason.trim(),
+  });
+
+  // Audit log - NEVER include candidate_id, only vote_id and reason
+  await db.insert(auditLog).values({
+    actorId: adminId,
+    action: "vote_invalidated",
+    targetType: "vote_invalidation",
+    targetId: voteId,
+    metadata: { voteId, reason: reason.trim() },
+  });
 
   revalidatePath("/admin/elections");
   return { success: true };

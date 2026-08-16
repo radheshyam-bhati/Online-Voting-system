@@ -19,7 +19,7 @@ vi.mock("@/db", () => ({
 
 vi.mock("@/lib/auth", () => ({
   auth: vi.fn().mockResolvedValue({
-    user: { id: "user-1", isAdmin: false, enrollmentNo: "STU2024001" },
+    user: { id: "user-1", isAdmin: true, enrollmentNo: "STU2024001" },
   }),
 }));
 
@@ -29,11 +29,16 @@ vi.mock("@/db/schema", () => ({
   candidate: {},
   electionVoter: {},
   vote: {},
+  voteInvalidation: {},
   appUser: {},
   nominationQuestion: {},
   nominationAnswer: {},
   auditLog: {},
   campus: {},
+}));
+
+vi.mock("next/cache", () => ({
+  revalidatePath: vi.fn(),
 }));
 
 describe("Election Actions", () => {
@@ -91,6 +96,69 @@ describe("Election Actions", () => {
 
       const result = await castVote("election-1", "club-1", "candidate-1");
       expect(result.error).toBe("You have already voted for this club");
+    });
+  });
+
+  describe("invalidateVote", () => {
+    it("should invalidate a vote and exclude it from tally", async () => {
+      const { invalidateVote } = await import("@/lib/actions/elections");
+      
+      // Mock vote exists
+      mockDb.limit.mockResolvedValueOnce([{ id: "vote-1", candidateId: "candidate-1" }]);
+      
+      // Mock no existing invalidation
+      mockDb.limit.mockResolvedValueOnce([]);
+      
+      // Mock successful insert
+      mockDb.values.mockResolvedValueOnce([{ id: "invalidation-1" }]);
+
+      const result = await invalidateVote("vote-1", "Duplicate vote detected");
+
+      expect(result.success).toBe(true);
+      expect(mockDb.insert).toHaveBeenCalled();
+      expect(mockDb.values).toHaveBeenCalledWith(expect.objectContaining({
+        voteId: "vote-1",
+        reason: "Duplicate vote detected",
+      }));
+    });
+
+    it("should reject invalidation when vote not found", async () => {
+      const { invalidateVote } = await import("@/lib/actions/elections");
+      
+      // Mock vote not found
+      mockDb.limit.mockResolvedValueOnce([]);
+
+      const result = await invalidateVote("vote-1", "Test reason");
+
+      expect(result.error).toBe("Vote not found");
+    });
+
+    it("should reject invalidation when vote already invalidated", async () => {
+      const { invalidateVote } = await import("@/lib/actions/elections");
+      
+      // Mock vote exists
+      mockDb.limit.mockResolvedValueOnce([{ id: "vote-1" }]);
+      
+      // Mock existing invalidation
+      mockDb.limit.mockResolvedValueOnce([{ id: "invalidation-1" }]);
+
+      const result = await invalidateVote("vote-1", "Test reason");
+
+      expect(result.error).toBe("Vote already invalidated");
+    });
+
+    it("should reject invalidation with empty reason", async () => {
+      const { invalidateVote } = await import("@/lib/actions/elections");
+      
+      // Mock vote exists
+      mockDb.limit.mockResolvedValueOnce([{ id: "vote-1" }]);
+      
+      // Mock no existing invalidation
+      mockDb.limit.mockResolvedValueOnce([]);
+
+      const result = await invalidateVote("vote-1", "   ");
+
+      expect(result.error).toBe("Reason is required");
     });
   });
 });

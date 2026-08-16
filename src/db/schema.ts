@@ -52,6 +52,7 @@ export const auditActionEnum = pgEnum("audit_action", [
   "admin_granted",
   "admin_permissions_changed",
   "admin_revoked",
+  "vote_invalidated",
 ]);
 
 export const adminFunctionEnum = pgEnum("admin_function", [
@@ -268,6 +269,21 @@ export const vote = pgTable("vote", {
   clubIndex: index("idx_vote_club").on(table.clubId),
   electionIndex: index("idx_vote_election").on(table.electionId),
   studentIndex: index("idx_vote_student").on(table.studentId),
+}));
+
+export const voteInvalidation = pgTable("vote_invalidation", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  voteId: uuid("vote_id")
+    .notNull()
+    .references(() => vote.id, { onDelete: "cascade" }),
+  invalidatedBy: uuid("invalidated_by")
+    .notNull()
+    .references(() => appUser.id),
+  reason: text("reason").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  uniqueVoteId: uniqueIndex("uq_vote_invalidation_vote_id").on(table.voteId),
+  invalidatedByIndex: index("idx_vote_invalidation_invalidated_by").on(table.invalidatedBy),
 }));
 
 export const auditLog = pgTable("audit_log", {
