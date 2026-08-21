@@ -10,10 +10,13 @@ import {
   uniqueIndex,
   index,
   primaryKey,
+  check,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const electionStatusEnum = pgEnum("election_status", [
   "draft",
+  "nomination",
   "scheduled",
   "open",
   "closed",
@@ -47,6 +50,19 @@ export const auditActionEnum = pgEnum("audit_action", [
   "election_created",
   "election_scheduled",
   "vote_cast",
+  "admin_granted",
+  "admin_permissions_changed",
+  "admin_revoked",
+  "vote_invalidated",
+  "election_voided",
+  "tie_resolved",
+]);
+
+export const adminFunctionEnum = pgEnum("admin_function", [
+  "members",
+  "content",
+  "elections",
+  "admins",
 ]);
 
 export const appUser = pgTable("app_user", {
@@ -56,11 +72,14 @@ export const appUser = pgTable("app_user", {
   fullName: text("full_name").notNull(),
   enrollmentNo: text("enrollment_no").unique(),
   campusId: uuid("campus_id").references(() => campus.id, { onDelete: "set null" }),
+  department: text("department"),
   isAdmin: boolean("is_admin").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export type AppUser = typeof appUser.$inferSelect;
 
 export const session = pgTable("session", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -71,6 +90,19 @@ export const session = pgTable("session", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const passwordResetToken = pgTable("password_reset_token", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => appUser.id, { onDelete: "cascade" }),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  tokenIdx: index("idx_password_reset_token").on(table.token),
+  expiresAtIdx: index("idx_password_reset_token_expires").on(table.expiresAt),
+}));
 
 export const campus = pgTable("campus", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -101,7 +133,11 @@ export const joinRequest = pgTable("join_request", {
   reviewedBy: uuid("reviewed_by").references(() => appUser.id, { onDelete: "set null" }),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  pendingEnrollmentIdx: uniqueIndex("uq_join_request_pending_enrollment")
+    .on(table.enrollmentNo)
+    .where(sql`${table.status} = 'pending'`),
+}));
 
 export const event = pgTable("event", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -151,13 +187,27 @@ export const election = pgTable("election", {
   status: electionStatusEnum("status").notNull().default("draft"),
   startsAt: timestamp("starts_at", { withTimezone: true }),
   endsAt: timestamp("ends_at", { withTimezone: true }),
+  nominationStartsAt: timestamp("nomination_starts_at", { withTimezone: true }),
+  nominationEndsAt: timestamp("nomination_ends_at", { withTimezone: true }),
   resultsVisibility: resultsVisibilityEnum("results_visibility").notNull().default("members_only"),
   createdBy: uuid("created_by")
     .notNull()
     .references(() => appUser.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  version: integer("version").notNull().default(1),
   publishedAt: timestamp("published_at", { withTimezone: true }),
-});
+  voidedBy: uuid("voided_by").references(() => appUser.id, { onDelete: "set null" }),
+  voidedAt: timestamp("voided_at", { withTimezone: true }),
+  voidReason: text("void_reason"),
+  tieBreakPolicy: text("tie_break_policy").notNull().default("manual_review"),
+}, (table) => ({
+  voidReasonCheck: check("void_reason_required_when_voided", sql`(${table.status}::text <> 'voided') OR (${table.voidReason} IS NOT NULL AND ${table.voidReason} <> '')`),
+  tieBreakPolicyCheck: check("tie_break_policy_valid", sql`${table.tieBreakPolicy} IN ('manual_review', 'revote')`),
+  statusIdx: index("idx_election_status").on(table.status),
+  startsAtIdx: index("idx_election_starts_at").on(table.startsAt),
+  endsAtIdx: index("idx_election_ends_at").on(table.endsAt),
+}));
 
 export const club = pgTable("club", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -167,18 +217,61 @@ export const club = pgTable("club", {
   campusId: uuid("campus_id").references(() => campus.id, { onDelete: "restrict" }),
   name: text("name").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  // Unique name per (election, campus) - two partial indexes for NULL handling
+  nameUniqueNonNullCampus: uniqueIndex("uq_club_name_election_campus")
+    .on(table.electionId, table.campusId, table.name)
+    .where(sql`${table.campusId} IS NOT NULL`),
+  nameUniqueNullCampus: uniqueIndex("uq_club_name_election_null_campus")
+    .on(table.electionId, table.name)
+    .where(sql`${table.campusId} IS NULL`),
+}));
 
 export const candidate = pgTable("candidate", {
   id: uuid("id").primaryKey().defaultRandom(),
+  electionId: uuid("election_id")
+    .notNull()
+    .references(() => election.id, { onDelete: "cascade" }),
   clubId: uuid("club_id")
     .notNull()
     .references(() => club.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   statement: text("statement"),
   photoUrl: text("photo_url"),
+  selfNominated: boolean("self_nominated").notNull().default(false),
+  nominatedBy: uuid("nominated_by").references(() => appUser.id, { onDelete: "set null" }),
+  publicStatement: text("public_statement"),
+  nominatedAt: timestamp("nominated_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  uniqueNomination: uniqueIndex("uq_one_nomination_per_student_per_election")
+    .on(table.electionId, table.nominatedBy)
+    .where(sql`${table.nominatedBy} IS NOT NULL`),
+}));
+
+export const nominationQuestion = pgTable("nomination_question", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clubId: uuid("club_id")
+    .notNull()
+    .references(() => club.id, { onDelete: "cascade" }),
+  questionText: text("question_text").notNull(),
+  displayOrder: integer("display_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const nominationAnswer = pgTable("nomination_answer", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  candidateId: uuid("candidate_id")
+    .notNull()
+    .references(() => candidate.id, { onDelete: "cascade" }),
+  questionId: uuid("question_id")
+    .notNull()
+    .references(() => nominationQuestion.id, { onDelete: "cascade" }),
+  answerText: text("answer_text").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  uniqueAnswer: uniqueIndex("uq_nomination_answer_candidate_question").on(table.candidateId, table.questionId),
+}));
 
 export const electionVoter = pgTable("election_voter", {
   electionId: uuid("election_id")
@@ -218,6 +311,21 @@ export const vote = pgTable("vote", {
   studentIndex: index("idx_vote_student").on(table.studentId),
 }));
 
+export const voteInvalidation = pgTable("vote_invalidation", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  voteId: uuid("vote_id")
+    .notNull()
+    .references(() => vote.id, { onDelete: "cascade" }),
+  invalidatedBy: uuid("invalidated_by")
+    .notNull()
+    .references(() => appUser.id),
+  reason: text("reason").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  uniqueVoteId: uniqueIndex("uq_vote_invalidation_vote_id").on(table.voteId),
+  invalidatedByIndex: index("idx_vote_invalidation_invalidated_by").on(table.invalidatedBy),
+}));
+
 export const auditLog = pgTable("audit_log", {
   id: uuid("id").primaryKey().defaultRandom(),
   actorId: uuid("actor_id").references(() => appUser.id, { onDelete: "set null" }),
@@ -227,3 +335,38 @@ export const auditLog = pgTable("audit_log", {
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const adminGrant = pgTable("admin_grant", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => appUser.id, { onDelete: "cascade" }),
+  isSuperAdmin: boolean("is_super_admin").notNull().default(false),
+  grantedBy: uuid("granted_by").references(() => appUser.id, { onDelete: "set null" }),
+  grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, (table) => ({
+  uniqueUser: uniqueIndex("uq_admin_grant_user").on(table.userId).where(sql`${table.revokedAt} IS NULL`),
+}));
+
+export const rateLimitAttempt = pgTable("rate_limit_attempt", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  identifier: text("identifier").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  identifierIdx: index("idx_rate_limit_identifier").on(table.identifier),
+  createdAtIdx: index("idx_rate_limit_created_at").on(table.createdAt),
+}));
+
+export const adminPermission = pgTable("admin_permission", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  adminGrantId: uuid("admin_grant_id")
+    .notNull()
+    .references(() => adminGrant.id, { onDelete: "cascade" }),
+  function: adminFunctionEnum("function").notNull(),
+  campusId: uuid("campus_id").references(() => campus.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  uniquePermission: uniqueIndex("uq_admin_permission").on(table.adminGrantId, table.function, table.campusId),
+  grantIndex: index("idx_admin_permission_grant").on(table.adminGrantId),
+}));

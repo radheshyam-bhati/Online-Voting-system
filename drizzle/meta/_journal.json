@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1786901085621,
+      "tag": "0000_parched_firestar",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787205550632,
+      "tag": "0001_lame_marvex",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787206094974,
+      "tag": "0002_optimal_captain_flint",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787208343181,
+      "tag": "0003_burly_lockjaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787208541046,
+      "tag": "0004_nebulous_war_machine",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787211392472,
+      "tag": "0005_cynical_vargas",
+      "breakpoints": true
+    }
+  ]
+}

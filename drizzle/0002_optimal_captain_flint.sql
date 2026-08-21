@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "uq_join_request_pending_enrollment" ON "join_request" USING btree ("enrollment_no") WHERE "join_request"."status" = 'pending';

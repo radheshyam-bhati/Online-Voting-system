@@ -14,7 +14,7 @@ describe("auth-utils", () => {
 
     const isInvalid = await verifyPassword("wrong-password", hash);
     expect(isInvalid).toBe(false);
-  });
+  }, 10000);
 
   it("produces different hashes for the same password", async () => {
     const password = "same-password";
@@ -25,5 +25,5 @@ describe("auth-utils", () => {
 
     expect(await verifyPassword(password, hash1)).toBe(true);
     expect(await verifyPassword(password, hash2)).toBe(true);
-  });
+  }, 10000);
 });

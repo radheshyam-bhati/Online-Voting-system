@@ -48,6 +48,60 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         };
       },
     }),
+    Credentials({
+      name: "student-login",
+      credentials: {
+        fullName: { label: "Full Name", type: "text" },
+        enrollmentNo: { label: "Enrollment Number", type: "text" },
+        email: { label: "Email Address", type: "email" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.fullName || !credentials?.enrollmentNo || !credentials?.email) {
+          return null;
+        }
+
+        const { getDb } = await import("@/db");
+        const db = getDb();
+        const { appUser } = await import("@/db/schema");
+        const { eq } = await import("drizzle-orm");
+
+        const normalizedEnrollmentNo = (credentials.enrollmentNo as string).trim();
+        const normalizedFullName = (credentials.fullName as string).trim().toLowerCase();
+        const normalizedEmail = (credentials.email as string).trim().toLowerCase();
+
+        const [user] = await db
+          .select()
+          .from(appUser)
+          .where(eq(appUser.enrollmentNo, normalizedEnrollmentNo))
+          .limit(1);
+
+        if (!user) {
+          return null;
+        }
+
+        if (!user.isActive) {
+          return null;
+        }
+
+        const storedFullName = (user.fullName || "").trim().toLowerCase();
+        if (storedFullName !== normalizedFullName) {
+          return null;
+        }
+
+        const storedEmail = (user.email || "").toLowerCase();
+        if (storedEmail !== normalizedEmail) {
+          return null;
+        }
+
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.fullName,
+          isAdmin: user.isAdmin,
+          enrollmentNo: user.enrollmentNo,
+        };
+      },
+    }),
   ],
   session: {
     strategy: "jwt",
