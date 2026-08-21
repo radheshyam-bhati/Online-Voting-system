@@ -1,6 +1,7 @@
 import { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getNominationQuestions } from "@/lib/actions/elections";
+import { getElectionForNomination } from "@/lib/actions/elections";
 import { NominationForm } from "./NominationForm";
 
 interface NominationPageProps {
@@ -15,31 +16,23 @@ export async function generateMetadata({ params }: NominationPageProps): Promise
   };
 }
 
-async function getElectionData(electionId: string) {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/elections/${electionId}`, {
-    cache: "no-store",
-  });
-  if (!res.ok) return null;
-  return res.json();
-}
-
 export default async function NominationPage({ params }: NominationPageProps) {
   const { electionId, clubId } = await params;
 
-  const [questions, election] = await Promise.all([
-    getNominationQuestions(clubId),
-    getElectionData(electionId),
-  ]);
+  try {
+    const [questions, electionData] = await Promise.all([
+      getNominationQuestions(clubId),
+      getElectionForNomination(electionId),
+    ]);
 
-  if (!election || !election.id) {
+    const club = electionData.clubs?.find((c: { id: string }) => c.id === clubId);
+
+    if (!club) {
+      notFound();
+    }
+
+    return <NominationForm electionId={electionId} clubId={clubId} clubName={club.name} questions={questions} election={electionData.election} />;
+  } catch {
     notFound();
   }
-
-  const club = election.clubs?.find((c: { id: string }) => c.id === clubId);
-
-  if (!club) {
-    notFound();
-  }
-
-  return <NominationForm electionId={electionId} clubId={clubId} clubName={club.name} questions={questions} election={election} />;
 }

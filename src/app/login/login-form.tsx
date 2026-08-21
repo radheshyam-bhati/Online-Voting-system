@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { AlertCircle } from "lucide-react";
+import Link from "next/link";
 
 export function LoginForm() {
   const router = useRouter();
@@ -104,6 +105,12 @@ export function LoginForm() {
             {isLoading ? "Signing in..." : "Sign in"}
           </Button>
         </form>
+
+        <div className="mt-4 text-center text-sm">
+          <Link href="/forgot-password" className="underline hover:text-primary">
+            Forgot password?
+          </Link>
+        </div>
 
         <div className="mt-6 text-center text-sm text-muted-foreground">
           <p>Demo accounts:</p>

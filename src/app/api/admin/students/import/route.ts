@@ -70,10 +70,10 @@ async function processStudent(
     }
   }
 
-  // Generate default password
+  // Generate secure random password
   const { hashPassword } = await import("@/lib/auth-utils");
-  const password = "changeme123";
-  const passwordHash = await hashPassword(password);
+  const tempPassword = generateTempPassword();
+  const passwordHash = await hashPassword(tempPassword);
 
   const [newUser] = await db
     .insert(appUser)
@@ -89,7 +89,18 @@ async function processStudent(
     })
     .returning();
 
+  console.log(`Created user: ${parsed.email} with temp password: ${tempPassword}`);
+
   return { success: true, user: newUser };
+}
+
+function generateTempPassword(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  let password = "";
+  for (let i = 0; i < 12; i++) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return password;
 }
 
 async function processCsvRow(
@@ -152,14 +163,14 @@ async function processCsvRow(
       }
     }
 
-    // Generate default password
+    // Generate secure random password
     const { hashPassword } = await import("@/lib/auth-utils");
-    const password = "changeme123";
-    const passwordHash = await hashPassword(password);
+    const tempPassword = generateTempPassword();
+    const passwordHash = await hashPassword(tempPassword);
 
     await db.insert(appUser).values({
       email: parsed.data.email,
-      passwordHash: await hashPassword(password),
+      passwordHash,
       fullName: parsed.data.fullName,
       enrollmentNo: parsed.data.enrollmentNo,
       campusId,
@@ -167,6 +178,8 @@ async function processCsvRow(
       isActive: true,
       isAdmin: false,
     });
+
+    console.log(`Imported user: ${parsed.data.email} with temp password: ${tempPassword}`);
 
     return { success: true };
   } catch (error) {

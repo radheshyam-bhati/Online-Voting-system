@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Vote, Plus, Settings, Users, List, BarChart2, ArrowRight, AlertCircle, X, Loader2, Ban, AlertTriangle, Gavel } from "lucide-react";
+import { Vote, Plus, Settings, Users, List, BarChart2, ArrowRight, Ban, AlertTriangle, Gavel, AlertCircle, Loader2, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -12,12 +12,14 @@ import { voidElection } from "@/lib/actions/elections";
 import { resolveTie } from "@/lib/actions/elections";
 
 export default function AdminElectionsClient() {
+  // Void election dialog state
   const [voidDialogOpen, setVoidDialogOpen] = useState(false);
   const [voidingElectionId, setVoidingElectionId] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [voiding, setVoiding] = useState(false);
   const [voidError, setVoidError] = useState("");
 
+  // Resolve tie dialog state
   const [tieDialogOpen, setTieDialogOpen] = useState(false);
   const [tyingElectionId, setTyingElectionId] = useState<string | null>(null);
   const [tyingClubId, setTyingClubId] = useState<string | null>(null);
@@ -142,14 +144,6 @@ export default function AdminElectionsClient() {
                 Configure
                 <ArrowRight className="w-4 h-4" />
               </Button>
-              <Button variant="destructive" className="gap-2" onClick={() => handleVoidClick("current-election-id")}>
-                <Ban className="w-4 h-4" />
-                Void Election
-              </Button>
-              <Button variant="outline" className="gap-2" onClick={() => handleTieClick("current-election-id", "current-club-id", "current-candidate-id")}>
-                <Gavel className="w-4 h-4" />
-                Resolve Tie
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -209,6 +203,7 @@ export default function AdminElectionsClient() {
         </div>
       </div>
 
+      {/* Void Election Dialog */}
       <Dialog open={voidDialogOpen} onOpenChange={setVoidDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -250,6 +245,7 @@ export default function AdminElectionsClient() {
         </DialogContent>
       </Dialog>
 
+      {/* Resolve Tie Dialog */}
       <Dialog open={tieDialogOpen} onOpenChange={setTieDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>

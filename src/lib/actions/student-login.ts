@@ -3,7 +3,7 @@
 import { getDb } from "@/db";
 import { eq, and } from "drizzle-orm";
 import { signIn } from "next-auth/react";
-import { auth } from "@/lib/auth";
+import { checkRateLimit } from "@/lib/rate-limit-db";
 
 export async function studentLogin(formData: {
   fullName: string;
@@ -20,6 +20,13 @@ export async function studentLogin(formData: {
   // Check for empty fields
   if (!normalizedFullName || !normalizedEnrollmentNo || !normalizedEmail) {
     return { error: "All three fields are required." };
+  }
+
+  // Rate limit by enrollment number (5 attempts per 15 minutes)
+  const rateLimit = await checkRateLimit(`student-login:${normalizedEnrollmentNo}`, 5, 15);
+  if (!rateLimit.allowed) {
+    const minutesLeft = Math.ceil((rateLimit.resetAt.getTime() - Date.now()) / 60000);
+    return { error: `Too many login attempts. Try again in ${minutesLeft} minutes.` };
   }
 
   const db = getDb();

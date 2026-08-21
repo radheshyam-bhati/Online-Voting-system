@@ -19,8 +19,8 @@ interface NominationFormProps {
   questions: Array<{ id: string; questionText: string; displayOrder: number }>;
   election: {
     multiCampus: boolean;
-    nominationStartsAt: string | null;
-    nominationEndsAt: string | null;
+    nominationStartsAt: Date | null;
+    nominationEndsAt: Date | null;
   };
 }
 
@@ -118,7 +118,7 @@ export function NominationForm({ electionId, clubId, clubName, questions, electi
         photoUrl || undefined
       );
 
-      if (result.error) {
+      if ("error" in result) {
         setError(result.error);
       } else {
         setSuccess(true);

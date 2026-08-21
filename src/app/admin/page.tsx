@@ -7,7 +7,7 @@ import { Users, Calendar, Bell, Vote, AlertCircle, ArrowRight } from "lucide-rea
 import { getAdminDashboardStats } from "@/lib/actions/admin";
 
 export const metadata: Metadata = {
-  title: "Admin Dashboard — Votara",
+  title: "Dashboard",
   description: "Admin dashboard for managing the club website and elections",
 };
 
@@ -51,125 +51,101 @@ export default async function AdminDashboard() {
   ];
 
   return (
-    <div className="min-h-screen bg-background font-sans">
-      <header className="border-b border-border">
-        <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <Link href="/admin" className="font-heading text-2xl font-bold text-primary">
-            Votara Admin
-          </Link>
-          <div className="flex items-center gap-4">
-            <Link href="/">
-              <Button variant="ghost" size="sm">View Site</Button>
-            </Link>
-            <Link href="/api/auth/signout" className="text-sm font-medium text-muted-foreground hover:text-foreground">
-              Logout
-            </Link>
-          </div>
-        </nav>
+    <div className="space-y-8">
+      <header className="mb-8">
+        <h1 className="font-heading text-3xl font-bold text-primary mb-2">Admin Dashboard</h1>
+        <p className="text-muted-foreground">Manage your club website, members, content, and elections</p>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <header className="mb-8">
-          <h1 className="font-heading text-3xl font-bold text-primary mb-2">Admin Dashboard</h1>
-          <p className="text-muted-foreground">Manage your club website, members, content, and elections</p>
-        </header>
-
-        {stats.activeElection && (
-          <div className="mb-8 p-4 bg-primary/5 border border-primary/20 rounded-xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Vote className="w-6 h-6 text-primary" />
-                <div>
-                  <p className="font-medium text-primary">Active Election: {stats.activeElection.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    Status: <span className="capitalize">{stats.activeElection.status}</span>
-                  </p>
-                </div>
+      {stats.activeElection && (
+        <div className="mb-8 p-4 bg-primary/5 border border-primary/20 rounded-xl">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Vote className="w-6 h-6 text-primary" />
+              <div>
+                <p className="font-medium text-primary">Active Election: {stats.activeElection.name}</p>
+                <p className="text-sm text-muted-foreground">
+                  Status: <span className="capitalize">{stats.activeElection.status}</span>
+                </p>
               </div>
-              <Link href="/admin/elections">
-                <Button variant="outline" size="sm" className="gap-2">
-                  Manage Election
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
             </div>
-          </div>
-        )}
-
-        <section className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-12">
-          {statCards.map((stat) => (
-            <Link key={stat.title} href={stat.href} className="block">
-              <Card className="hover:shadow-lg transition-shadow h-full">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">{stat.title}</CardTitle>
-                    <div className={`${stat.bg} p-2 rounded-lg`}>
-                      <stat.icon className={`w-5 h-5 ${stat.color}`} />
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="flex items-end justify-between">
-                  <div className="font-heading text-3xl font-bold text-foreground">{stat.value}</div>
-                  {stat.badge && <Badge variant="destructive" className="text-xs">{stat.badge}</Badge>}
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
-        </section>
-
-        <section>
-          <h2 className="font-heading text-xl font-bold text-primary mb-6">Quick Actions</h2>
-          <div className="grid gap-4 md:grid-cols-3">
-            <Link href="/admin/members">
-              <Card className="hover:shadow-lg transition-shadow h-full border-accent/30">
-                <CardHeader>
-                  <CardTitle className="font-heading flex items-center gap-2">
-                    <Users className="w-5 h-5" />
-                    Manage Members
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-muted-foreground text-sm">View members, approve join requests, update roles</p>
-                </CardContent>
-              </Card>
-            </Link>
-
-            <Link href="/admin/content">
-              <Card className="hover:shadow-lg transition-shadow h-full">
-                <CardHeader>
-                  <CardTitle className="font-heading flex items-center gap-2">
-                    <Calendar className="w-5 h-5" />
-                    Manage Content
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-muted-foreground text-sm">Create and edit events and announcements</p>
-                </CardContent>
-              </Card>
-            </Link>
-
             <Link href="/admin/elections">
-              <Card className="hover:shadow-lg transition-shadow h-full">
-                <CardHeader>
-                  <CardTitle className="font-heading flex items-center gap-2">
-                    <Vote className="w-5 h-5" />
-                    Manage Elections
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-muted-foreground text-sm">Configure elections, clubs, candidates, and results</p>
-                </CardContent>
-              </Card>
+              <Button variant="outline" size="sm" className="gap-2">
+                Manage Election
+                <ArrowRight className="w-4 h-4" />
+              </Button>
             </Link>
           </div>
-        </section>
-      </main>
-
-      <footer className="border-t border-border py-8 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-sm text-muted-foreground">
-          <p>&copy; 2026 Votara Admin. All rights reserved.</p>
         </div>
-      </footer>
+      )}
+
+      <section className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-12">
+        {statCards.map((stat) => (
+          <Link key={stat.title} href={stat.href} className="block">
+            <Card className="hover:shadow-lg transition-shadow h-full">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">{stat.title}</CardTitle>
+                  <div className={`${stat.bg} p-2 rounded-lg`}>
+                    <stat.icon className={`w-5 h-5 ${stat.color}`} />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="flex items-end justify-between">
+                <div className="font-heading text-3xl font-bold text-foreground">{stat.value}</div>
+                {stat.badge && <Badge variant="destructive" className="text-xs">{stat.badge}</Badge>}
+              </CardContent>
+            </Card>
+          </Link>
+        ))}
+      </section>
+
+      <section>
+        <h2 className="font-heading text-xl font-bold text-primary mb-6">Quick Actions</h2>
+        <div className="grid gap-4 md:grid-cols-3">
+          <Link href="/admin/members">
+            <Card className="hover:shadow-lg transition-shadow h-full border-accent/30">
+              <CardHeader>
+                <CardTitle className="font-heading flex items-center gap-2">
+                  <Users className="w-5 h-5" />
+                  Manage Members
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-muted-foreground text-sm">View members, approve join requests, update roles</p>
+              </CardContent>
+            </Card>
+          </Link>
+
+          <Link href="/admin/content">
+            <Card className="hover:shadow-lg transition-shadow h-full">
+              <CardHeader>
+                <CardTitle className="font-heading flex items-center gap-2">
+                  <Calendar className="w-5 h-5" />
+                  Manage Content
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-muted-foreground text-sm">Create and edit events and announcements</p>
+              </CardContent>
+            </Card>
+          </Link>
+
+          <Link href="/admin/elections">
+            <Card className="hover:shadow-lg transition-shadow h-full">
+              <CardHeader>
+                <CardTitle className="font-heading flex items-center gap-2">
+                  <Vote className="w-5 h-5" />
+                  Manage Elections
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-muted-foreground text-sm">Configure elections, clubs, candidates, and results</p>
+              </CardContent>
+            </Card>
+          </Link>
+        </div>
+      </section>
     </div>
   );
 }

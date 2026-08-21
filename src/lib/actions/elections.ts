@@ -3,9 +3,9 @@
 import { getDb } from "@/db";
 import { eq, desc, and, isNull, gte, lte, sql, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { isCandidateProfileVisible } from "@/lib/candidate-visibility";
+import { requireAuth, requireAdmin, getOptionalSession } from "@/lib/auth-server";
 
 async function getSchema() {
   const { 
@@ -22,14 +22,6 @@ async function getSchema() {
     auditLog
   } = await import("@/db/schema");
   return { election, club, candidate, electionVoter, vote, voteInvalidation, nominationQuestion, nominationAnswer, appUser, campus, auditLog };
-}
-
-async function requireAuth() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    throw new Error("Unauthorized: Please log in");
-  }
-  return session.user.id;
 }
 
 export async function getElectionDashboard() {
@@ -61,73 +53,117 @@ export async function getElectionDashboard() {
     )
     .orderBy(desc(election.createdAt));
 
-  // For each election, get user's voting status per club
-  const dashboardData = await Promise.all(visibleElections.map(async (election) => {
-    // Get clubs for this election that the user is eligible to vote in
-    const userClubs = await db
-      .select({
-        id: club.id,
-        name: club.name,
-        campusId: club.campusId,
-      })
-      .from(club)
-      .innerJoin(electionVoter, and(
-        eq(electionVoter.electionId, election.id),
-        eq(electionVoter.userId, userId),
-        sql`${electionVoter.campusId} IS NULL OR ${electionVoter.campusId} = ${club.campusId}`
-      ))
-      .where(eq(club.electionId, election.id));
+  if (visibleElections.length === 0) {
+    return [];
+  }
 
-    // Get user's votes for this election
-    const userVotes = await db
-      .select({
-        clubId: vote.clubId,
-        candidateId: vote.candidateId,
-        castAt: vote.castAt,
-      })
-      .from(vote)
-      .where(and(eq(vote.electionId, election.id), eq(vote.studentId, userId)));
+  const electionIds = visibleElections.map(e => e.id);
 
+  // Get all clubs for these elections with voter eligibility in one query
+  const allClubs = await db
+    .select({
+      id: club.id,
+      name: club.name,
+      campusId: club.campusId,
+      electionId: club.electionId,
+    })
+    .from(club)
+    .innerJoin(electionVoter, and(
+      eq(electionVoter.electionId, club.electionId),
+      eq(electionVoter.userId, userId),
+      sql`${electionVoter.campusId} IS NULL OR ${electionVoter.campusId} = ${club.campusId}`
+    ))
+    .where(inArray(club.electionId, electionIds));
+
+  // Get all user votes for these elections in one query
+  const allUserVotes = await db
+    .select({
+      clubId: vote.clubId,
+      candidateId: vote.candidateId,
+      castAt: vote.castAt,
+      electionId: vote.electionId,
+    })
+    .from(vote)
+    .where(and(inArray(vote.electionId, electionIds), eq(vote.studentId, userId)));
+
+  // Get all candidates for these elections in one query
+  const allCandidates = await db
+    .select({
+      id: candidate.id,
+      name: candidate.name,
+      publicStatement: candidate.publicStatement,
+      photoUrl: candidate.photoUrl,
+      clubId: candidate.clubId,
+      electionId: candidate.electionId,
+    })
+    .from(candidate)
+    .where(inArray(candidate.electionId, electionIds))
+    .orderBy(candidate.createdAt);
+
+  // Get user nominations for these elections in one query
+  const allUserNominations = await db
+    .select({ clubId: candidate.clubId, electionId: candidate.electionId })
+    .from(candidate)
+    .where(and(inArray(candidate.electionId, electionIds), eq(candidate.nominatedBy, userId), eq(candidate.selfNominated, true)));
+
+  // Group data by election
+  const clubsByElection = new Map<string, typeof allClubs>();
+  for (const c of allClubs) {
+    if (!clubsByElection.has(c.electionId)) clubsByElection.set(c.electionId, []);
+    clubsByElection.get(c.electionId)!.push(c);
+  }
+
+  const votesByElection = new Map<string, typeof allUserVotes>();
+  for (const v of allUserVotes) {
+    if (!votesByElection.has(v.electionId)) votesByElection.set(v.electionId, []);
+    votesByElection.get(v.electionId)!.push(v);
+  }
+
+  const candidatesByClub = new Map<string, typeof allCandidates>();
+  for (const c of allCandidates) {
+    const key = `${c.electionId}:${c.clubId}`;
+    if (!candidatesByClub.has(key)) candidatesByClub.set(key, []);
+    candidatesByClub.get(key)!.push(c);
+  }
+
+  const nominationsByElection = new Map<string, string | null>();
+  for (const n of allUserNominations) {
+    nominationsByElection.set(n.electionId, n.clubId);
+  }
+
+  // Build dashboard data
+  const dashboardData = visibleElections.map((election) => {
+    const userClubs = clubsByElection.get(election.id) || [];
+    const userVotes = votesByElection.get(election.id) || [];
     const votedClubIds = new Set(userVotes.map(v => v.clubId));
 
-// Get candidates for each club
-      const clubsWithCandidates = await Promise.all(userClubs.map(async (club) => {
-        const candidates = await db
-          .select({
-            id: candidate.id,
-            name: candidate.name,
-            statement: candidate.publicStatement,
-            photoUrl: candidate.photoUrl,
-            profileVisible: sql`${isCandidateProfileVisible(election.status)}`,
-          })
-          .from(candidate)
-          .where(and(eq(candidate.clubId, club.id), eq(candidate.electionId, election.id)))
-          .orderBy(candidate.createdAt);
+    const clubsWithCandidates = userClubs.map((club) => {
+      const key = `${election.id}:${club.id}`;
+      const candidates = candidatesByClub.get(key) || [];
+      const profileVisible = isCandidateProfileVisible(election.status);
+      const hasVoted = votedClubIds.has(club.id);
+      const votedCandidate = hasVoted ? userVotes.find(v => v.clubId === club.id) : null;
 
-        const hasVoted = votedClubIds.has(club.id);
-        const votedCandidate = hasVoted ? userVotes.find(v => v.clubId === club.id) : null;
-
-        return {
-          ...club,
-          candidates,
-          hasVoted,
-          votedCandidateId: votedCandidate?.candidateId || null,
-        };
-      }));
-
-    // Check if user has nominated themselves for this election
-    const userNomination = await db
-      .select({ clubId: candidate.clubId })
-      .from(candidate)
-      .where(and(eq(candidate.electionId, election.id), eq(candidate.nominatedBy, userId), eq(candidate.selfNominated, true)))
-      .limit(1);
+      return {
+        ...club,
+        candidates: candidates.map(c => ({
+          id: c.id,
+          name: c.name,
+          statement: c.publicStatement,
+          photoUrl: c.photoUrl,
+          profileVisible,
+        })),
+        hasVoted,
+        votedCandidateId: votedCandidate?.candidateId || null,
+      };
+    });
 
     return {
       ...election,
       clubs: clubsWithCandidates,
-      userNominatedFor: userNomination[0]?.clubId || null,
+      userNominatedFor: nominationsByElection.get(election.id) || null,
     };
-  }));
+  });
 
   return dashboardData;
 }
@@ -224,7 +260,100 @@ export async function getElectionForVoting(electionId: string) {
   };
 }
 
+export async function getElectionForNomination(electionId: string) {
+  const userId = await requireAuth();
+  const db = getDb();
+  const { election, club, candidate, electionVoter } = await getSchema();
+
+  const [electionData] = await db
+    .select()
+    .from(election)
+    .where(
+      and(
+        eq(election.id, electionId),
+        sql`${election.status} IN ('nomination', 'scheduled', 'open', 'closed', 'published', 'voided')`,
+        sql`${election.id} IN (SELECT DISTINCT election_id FROM club WHERE election_id = ${election.id})`
+      )
+    )
+    .limit(1);
+
+  if (!electionData) {
+    throw new Error("Election not found or not visible");
+  }
+
+  // Check if user is eligible to nominate in this election
+  const eligibility = await db
+    .select()
+    .from(electionVoter)
+    .where(and(eq(electionVoter.electionId, electionId), eq(electionVoter.userId, userId)))
+    .limit(1);
+
+  if (!eligibility[0]) {
+    throw new Error("You are not eligible to nominate in this election");
+  }
+
+  // Check election status
+  const now = new Date();
+  if (electionData.status !== "nomination") {
+    throw new Error(`Election is not open for nominations. Current status: ${electionData.status}`);
+  }
+  if (electionData.nominationStartsAt && new Date(electionData.nominationStartsAt) > now) {
+    throw new Error("Nomination period has not started yet");
+  }
+  if (electionData.nominationEndsAt && new Date(electionData.nominationEndsAt) < now) {
+    throw new Error("Nomination period has ended");
+  }
+
+  // Get clubs for this election that user is eligible for
+  const userCampusId = eligibility[0].campusId;
+  const clubs = await db
+    .select({
+      id: club.id,
+      name: club.name,
+      campusId: club.campusId,
+    })
+    .from(club)
+    .where(and(
+      eq(club.electionId, electionId),
+      userCampusId ? sql`${club.campusId} IS NULL OR ${club.campusId} = ${userCampusId}` : sql`${club.campusId} IS NULL`
+    ));
+
+  // Get candidates for each club
+  const clubsWithCandidates = await Promise.all(clubs.map(async (club) => {
+    const candidates = await db
+      .select({
+        id: candidate.id,
+        name: candidate.name,
+        publicStatement: candidate.publicStatement,
+        photoUrl: candidate.photoUrl,
+        profileVisible: sql`${isCandidateProfileVisible(electionData.status)}`,
+      })
+      .from(candidate)
+      .where(and(eq(candidate.clubId, club.id), eq(candidate.electionId, election.id)))
+      .orderBy(candidate.createdAt);
+
+    return { ...club, candidates };
+  }));
+
+  return {
+    election: electionData,
+    clubs: clubsWithCandidates,
+  };
+}
+
 export async function castVote(electionId: string, clubId: string, candidateId: string) {
+  // CSRF protection (skip in test environment)
+  if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
+    const { validateCSRF } = await import("@/lib/csrf");
+    const { headers } = await import("next/headers");
+    const headersList = await headers();
+    const request = new Request("", { headers: headersList });
+    const isValidCSRF = await validateCSRF(request);
+    if (!isValidCSRF) {
+      return { error: "Invalid request. Please try again." };
+    }
+  }
+
   const userId = await requireAuth();
   const db = getDb();
   const { election, club, candidate, electionVoter, vote } = await getSchema();
@@ -290,12 +419,12 @@ export async function castVote(electionId: string, clubId: string, candidateId: 
       candidateId,
     });
 
-    // Audit log
+    // Audit log - record participation fact only, never vote content (candidate choice)
     await db.insert((await import("@/db/schema")).auditLog).values({
       actorId: userId,
       action: "vote_cast",
       targetType: "vote",
-      targetId: candidateId,
+      targetId: null,
       metadata: { electionId, clubId },
     });
 
@@ -315,7 +444,7 @@ export async function getElectionResults(electionId: string) {
   const db = getDb();
   const { election, club, candidate, vote, campus, voteInvalidation } = await getSchema();
 
-  const session = await auth();
+  const session = await getOptionalSession();
   const isAdmin = session?.user?.isAdmin === true;
 
   const [electionData] = await db
@@ -353,31 +482,61 @@ export async function getElectionResults(electionId: string) {
     .from(club)
     .where(eq(club.electionId, electionId));
 
-  // Get results for each club
-  const results = await Promise.all(clubs.map(async (club) => {
-    const candidates = await db
-      .select({
-        id: candidate.id,
-        name: candidate.name,
-        publicStatement: candidate.publicStatement,
-        photoUrl: candidate.photoUrl,
-        voteCount: sql<number>`count(${vote.id})`,
-        profileVisible: sql`${isCandidateProfileVisible(electionData.status)}`,
-      })
-      .from(candidate)
-      .leftJoin(
-        vote,
-        and(
-          eq(vote.candidateId, candidate.id),
-          eq(vote.clubId, club.id),
-          // Exclude invalidated votes: only join votes that are NOT in vote_invalidation
-          sql`${vote.id} NOT IN (SELECT vote_id FROM ${voteInvalidation})`
-        )
-      )
-      .where(and(eq(candidate.clubId, club.id), eq(candidate.electionId, electionId)))
-      .groupBy(candidate.id)
-      .orderBy(sql`count(${vote.id}) desc`);
+  if (clubs.length === 0) {
+    return { election: electionData, results: [] };
+  }
 
+  const clubIds = clubs.map(c => c.id);
+  const campusIds = clubs.filter(c => c.campusId).map(c => c.campusId!) as string[];
+
+  // Get all candidates with vote counts in one query
+  const allCandidates = await db
+    .select({
+      id: candidate.id,
+      name: candidate.name,
+      publicStatement: candidate.publicStatement,
+      photoUrl: candidate.photoUrl,
+      clubId: candidate.clubId,
+      voteCount: sql<number>`count(${vote.id})`,
+    })
+    .from(candidate)
+    .leftJoin(
+      vote,
+      and(
+        eq(vote.candidateId, candidate.id),
+        eq(vote.clubId, candidate.clubId),
+        // Exclude invalidated votes: only join votes that are NOT in vote_invalidation
+        sql`${vote.id} NOT IN (SELECT vote_id FROM ${voteInvalidation})`
+      )
+    )
+    .where(and(inArray(candidate.clubId, clubIds), eq(candidate.electionId, electionId)))
+    .groupBy(candidate.id, candidate.clubId)
+    .orderBy(candidate.clubId, sql`count(${vote.id}) desc`);
+
+  // Get campus names in one query if multi-campus
+  const campusNames = new Map<string, string>();
+  if (electionData.multiCampus && campusIds.length > 0) {
+    const campuses = await db
+      .select({ id: campus.id, name: campus.name })
+      .from(campus)
+      .where(inArray(campus.id, campusIds));
+    for (const c of campuses) {
+      campusNames.set(c.id, c.name);
+    }
+  }
+
+  // Group candidates by club
+  const candidatesByClub = new Map<string, typeof allCandidates>();
+  for (const c of allCandidates) {
+    if (!candidatesByClub.has(c.clubId)) candidatesByClub.set(c.clubId, []);
+    candidatesByClub.get(c.clubId)!.push(c);
+  }
+
+  const profileVisible = isCandidateProfileVisible(electionData.status);
+
+  // Build results
+  const results = clubs.map((club) => {
+    const candidates = candidatesByClub.get(club.id) || [];
     const totalVotes = candidates.reduce((sum, c) => sum + (c.voteCount || 0), 0);
 
     // Detect tie: check if multiple candidates have the same highest vote count
@@ -386,15 +545,10 @@ export async function getElectionResults(electionId: string) {
     const isTied = tiedCandidates.length > 1;
     const tieBreakPolicy = electionData.tieBreakPolicy || "manual_review";
 
-    // Get campus info if multi-campus
+    // Get campus name
     let campusName = null;
     if (electionData.multiCampus && club.campusId) {
-      const [campusData] = await db
-        .select({ name: campus.name })
-        .from(campus)
-        .where(eq(campus.id, club.campusId))
-        .limit(1);
-      campusName = campusData?.name || null;
+      campusName = campusNames.get(club.campusId) || null;
     }
 
     return {
@@ -402,12 +556,19 @@ export async function getElectionResults(electionId: string) {
       clubName: club.name,
       campusName,
       totalVotes,
-      candidates,
+      candidates: candidates.map(c => ({
+        id: c.id,
+        name: c.name,
+        publicStatement: c.publicStatement,
+        photoUrl: c.photoUrl,
+        voteCount: c.voteCount || 0,
+        profileVisible,
+      })),
       isTied,
       tiedCandidates: tiedCandidates.map(c => c.id),
       tieBreakPolicy,
     };
-  }));
+  });
 
   return {
     election: electionData,
@@ -428,7 +589,19 @@ export async function getNominationQuestions(clubId: string) {
   return questions;
 }
 
-export async function submitNomination(electionId: string, clubId: string, answers: { questionId: string; answerText: string }[], photoUrl?: string) {
+export async function submitNomination(electionId: string, clubId: string, answers: { questionId: string; answerText: string }[], photoUrl?: string): Promise<{ success: boolean; candidateId?: string } | { error: string }> {
+  // CSRF protection (skip in test environment)
+  if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
+    const { validateCSRF } = await import("@/lib/csrf");
+    const { headers } = await import("next/headers");
+    const headersList = await headers();
+    const request = new Request("", { headers: headersList });
+    const isValidCSRF = await validateCSRF(request);
+    if (!isValidCSRF) {
+      return { error: "Invalid request. Please try again." };
+    }
+  }
+
   const userId = await requireAuth();
   const db = getDb();
   const { election, club, candidate, electionVoter, nominationQuestion, nominationAnswer } = await getSchema();
@@ -504,7 +677,7 @@ export async function submitNomination(electionId: string, clubId: string, answe
     return { error: "All nomination questions must be answered" };
   }
 
-  // Create candidate record
+  // Create candidate record and answers atomically
   const { appUser } = await import("@/db/schema");
   const [user] = await db
     .select({ fullName: appUser.fullName })
@@ -512,39 +685,43 @@ export async function submitNomination(electionId: string, clubId: string, answe
     .where(eq(appUser.id, userId))
     .limit(1);
 
-  const [newCandidate] = await db
-    .insert(candidate)
-    .values({
-      electionId,
-      clubId,
-      name: user?.fullName || "Unknown",
-      selfNominated: true,
-      nominatedBy: userId,
-      photoUrl: photoUrl || null,
-      nominatedAt: new Date(),
-    })
-    .returning();
+  const { withTransaction } = await import("@/db");
+  const result = await withTransaction(async (tx) => {
+    const [newCandidate] = await tx
+      .insert(candidate)
+      .values({
+        electionId,
+        clubId,
+        name: user?.fullName || "Unknown",
+        selfNominated: true,
+        nominatedBy: userId,
+        photoUrl: photoUrl || null,
+        nominatedAt: new Date(),
+      })
+      .returning();
 
-  // Save answers
-  for (const answer of answers) {
-    await db.insert(nominationAnswer).values({
-      candidateId: newCandidate.id,
-      questionId: answer.questionId,
-      answerText: answer.answerText,
+    // Save answers
+    for (const answer of answers) {
+      await tx.insert(nominationAnswer).values({
+        candidateId: newCandidate.id,
+        questionId: answer.questionId,
+        answerText: answer.answerText,
+      });
+    }
+
+    // Audit log
+    await tx.insert((await import("@/db/schema")).auditLog).values({
+      actorId: userId,
+      action: "candidate_added",
+      targetType: "candidate",
+      targetId: newCandidate.id,
+      metadata: { electionId, clubId, selfNominated: true },
     });
-  }
 
-  // Audit log
-  await db.insert((await import("@/db/schema")).auditLog).values({
-    actorId: userId,
-    action: "candidate_added",
-    targetType: "candidate",
-    targetId: newCandidate.id,
-    metadata: { electionId, clubId, selfNominated: true },
+    revalidatePath("/elections");
+    return { success: true, candidateId: newCandidate.id };
   });
-
-  revalidatePath("/elections");
-  return { success: true, candidateId: newCandidate.id };
+  return result;
 }
 
 export async function getAdminElections() {
@@ -560,14 +737,6 @@ export async function getAdminElections() {
   return elections;
 }
 
-async function requireAdmin() {
-  const session = await auth();
-  if (!session?.user?.isAdmin) {
-    throw new Error("Unauthorized: Admin access required");
-  }
-  return session.user.id;
-}
-
 export async function createElection(data: {
   name: string;
   multiCampus: boolean;
@@ -576,23 +745,27 @@ export async function createElection(data: {
   startsAt?: Date;
   endsAt?: Date;
   resultsVisibility: "public" | "members_only" | "admin_only";
-}) {
+}): Promise<{ success: true } | { error: string }> {
   const adminId = await requireAdmin();
   const db = getDb();
   const { election } = await getSchema();
 
-  await db.insert(election).values({
-    ...data,
-    nominationStartsAt: data.nominationStartsAt || null,
-    nominationEndsAt: data.nominationEndsAt || null,
-    startsAt: data.startsAt || null,
-    endsAt: data.endsAt || null,
-    createdBy: adminId,
-    status: "draft",
-  });
+  try {
+    await db.insert(election).values({
+      ...data,
+      nominationStartsAt: data.nominationStartsAt || null,
+      nominationEndsAt: data.nominationEndsAt || null,
+      startsAt: data.startsAt || null,
+      endsAt: data.endsAt || null,
+      createdBy: adminId,
+      status: "draft",
+    });
 
-  revalidatePath("/admin/elections");
-  return { success: true };
+    revalidatePath("/admin/elections");
+    return { success: true };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to create election" };
+  }
 }
 
 // Helper: check if election is visible to students (has clubs)
@@ -634,6 +807,7 @@ export async function updateElection(electionId: string, data: Partial<{
   status: "draft" | "nomination" | "scheduled" | "open" | "closed" | "published" | "voided";
   resultsVisibility: "public" | "members_only" | "admin_only";
   voidReason: string;
+  expectedVersion: number;
 }>) {
   const adminId = await requireAdmin();
   const db = getDb();
@@ -647,24 +821,23 @@ export async function updateElection(electionId: string, data: Partial<{
     }
   }
 
-  const updateData: Record<string, unknown> = { ...data };
-  if (data.nominationStartsAt) updateData.nominationStartsAt = new Date(data.nominationStartsAt);
-  if (data.nominationEndsAt) updateData.nominationEndsAt = new Date(data.nominationEndsAt);
-  if (data.startsAt) updateData.startsAt = new Date(data.startsAt);
-  if (data.endsAt) updateData.endsAt = new Date(data.endsAt);
+  // Optimistic locking: fetch current version
+  const [currentElection] = await db
+    .select({ version: election.version, status: election.status })
+    .from(election)
+    .where(eq(election.id, electionId))
+    .limit(1);
+
+  if (!currentElection) {
+    return { error: "Election not found" };
+  }
+
+  if (data.expectedVersion !== undefined && data.expectedVersion !== currentElection.version) {
+    return { error: "Election was modified by another user. Please refresh and try again." };
+  }
 
   // If transitioning to voided, validate reason and prevent voiding published
   if (data.status === 'voided') {
-    const [currentElection] = await db
-      .select({ status: election.status })
-      .from(election)
-      .where(eq(election.id, electionId))
-      .limit(1);
-    
-    if (!currentElection) {
-      return { error: "Election not found" };
-    }
-    
     if (currentElection.status === 'published') {
       return { error: "Cannot void a published election. Published elections have final results." };
     }
@@ -672,10 +845,24 @@ export async function updateElection(electionId: string, data: Partial<{
     if (!data.voidReason || data.voidReason.trim().length === 0) {
       return { error: "A reason is required to void an election" };
     }
-    
+  }
+
+  const updateData: Record<string, unknown> = { ...data };
+  delete updateData.expectedVersion;
+  if (data.nominationStartsAt) updateData.nominationStartsAt = new Date(data.nominationStartsAt);
+  if (data.nominationEndsAt) updateData.nominationEndsAt = new Date(data.nominationEndsAt);
+  if (data.startsAt) updateData.startsAt = new Date(data.startsAt);
+  if (data.endsAt) updateData.endsAt = new Date(data.endsAt);
+
+  // Increment version for optimistic locking
+  updateData.version = currentElection.version + 1;
+  updateData.updatedAt = new Date();
+
+  if (data.status === 'voided') {
+    const voidReason = data.voidReason!.trim();
     updateData.voidedBy = adminId;
     updateData.voidedAt = new Date();
-    updateData.voidReason = data.voidReason.trim();
+    updateData.voidReason = voidReason;
     
     // Audit log
     const { auditLog: auditLogSchema } = await getSchema();
@@ -684,11 +871,18 @@ export async function updateElection(electionId: string, data: Partial<{
       action: "election_voided",
       targetType: "election",
       targetId: electionId,
-      metadata: { reason: data.voidReason.trim() },
+      metadata: { reason: voidReason },
     });
   }
 
-  await db.update(election).set(updateData).where(eq(election.id, electionId));
+  const result = await db
+    .update(election)
+    .set(updateData)
+    .where(and(eq(election.id, electionId), eq(election.version, currentElection.version)));
+
+  if (result.rowCount === 0) {
+    return { error: "Election was modified by another user. Please refresh and try again." };
+  }
 
   revalidatePath("/admin/elections");
   return { success: true };

@@ -1,6 +1,5 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { rateLimitDual } from "@/lib/rate-limit";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -61,22 +60,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
-        // Get client IP for rate limiting (from headers)
-        // Note: In a real deployment, you'd get the IP from the request headers
-        // For now, we'll use a placeholder and the enrollment number for rate limiting
-        const normalizedEnrollmentNo = (credentials.enrollmentNo as string).trim();
-        
-        // Rate limit by enrollment number
-        const rateLimitResult = rateLimitDual("unknown", normalizedEnrollmentNo, 5, 60 * 1000);
-        if (!rateLimitResult.success) {
-          return null;
-        }
-
         const { getDb } = await import("@/db");
         const db = getDb();
         const { appUser } = await import("@/db/schema");
         const { eq } = await import("drizzle-orm");
 
+        const normalizedEnrollmentNo = (credentials.enrollmentNo as string).trim();
         const normalizedFullName = (credentials.fullName as string).trim().toLowerCase();
         const normalizedEmail = (credentials.email as string).trim().toLowerCase();
 

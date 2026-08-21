@@ -91,6 +91,19 @@ export const session = pgTable("session", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const passwordResetToken = pgTable("password_reset_token", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => appUser.id, { onDelete: "cascade" }),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  tokenIdx: index("idx_password_reset_token").on(table.token),
+  expiresAtIdx: index("idx_password_reset_token_expires").on(table.expiresAt),
+}));
+
 export const campus = pgTable("campus", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull().unique(),
@@ -120,7 +133,11 @@ export const joinRequest = pgTable("join_request", {
   reviewedBy: uuid("reviewed_by").references(() => appUser.id, { onDelete: "set null" }),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  pendingEnrollmentIdx: uniqueIndex("uq_join_request_pending_enrollment")
+    .on(table.enrollmentNo)
+    .where(sql`${table.status} = 'pending'`),
+}));
 
 export const event = pgTable("event", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -177,6 +194,8 @@ export const election = pgTable("election", {
     .notNull()
     .references(() => appUser.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  version: integer("version").notNull().default(1),
   publishedAt: timestamp("published_at", { withTimezone: true }),
   voidedBy: uuid("voided_by").references(() => appUser.id, { onDelete: "set null" }),
   voidedAt: timestamp("voided_at", { withTimezone: true }),
@@ -185,6 +204,9 @@ export const election = pgTable("election", {
 }, (table) => ({
   voidReasonCheck: check("void_reason_required_when_voided", sql`(${table.status}::text <> 'voided') OR (${table.voidReason} IS NOT NULL AND ${table.voidReason} <> '')`),
   tieBreakPolicyCheck: check("tie_break_policy_valid", sql`${table.tieBreakPolicy} IN ('manual_review', 'revote')`),
+  statusIdx: index("idx_election_status").on(table.status),
+  startsAtIdx: index("idx_election_starts_at").on(table.startsAt),
+  endsAtIdx: index("idx_election_ends_at").on(table.endsAt),
 }));
 
 export const club = pgTable("club", {
@@ -195,7 +217,15 @@ export const club = pgTable("club", {
   campusId: uuid("campus_id").references(() => campus.id, { onDelete: "restrict" }),
   name: text("name").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  // Unique name per (election, campus) - two partial indexes for NULL handling
+  nameUniqueNonNullCampus: uniqueIndex("uq_club_name_election_campus")
+    .on(table.electionId, table.campusId, table.name)
+    .where(sql`${table.campusId} IS NOT NULL`),
+  nameUniqueNullCampus: uniqueIndex("uq_club_name_election_null_campus")
+    .on(table.electionId, table.name)
+    .where(sql`${table.campusId} IS NULL`),
+}));
 
 export const candidate = pgTable("candidate", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -317,6 +347,15 @@ export const adminGrant = pgTable("admin_grant", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
 }, (table) => ({
   uniqueUser: uniqueIndex("uq_admin_grant_user").on(table.userId).where(sql`${table.revokedAt} IS NULL`),
+}));
+
+export const rateLimitAttempt = pgTable("rate_limit_attempt", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  identifier: text("identifier").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  identifierIdx: index("idx_rate_limit_identifier").on(table.identifier),
+  createdAtIdx: index("idx_rate_limit_created_at").on(table.createdAt),
 }));
 
 export const adminPermission = pgTable("admin_permission", {

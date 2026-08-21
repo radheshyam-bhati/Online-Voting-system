@@ -1,7 +1,7 @@
 "use server";
 
 import { getDb } from "@/db";
-import { eq, desc, and, isNull, gte, lte } from "drizzle-orm";
+import { eq, desc, and, isNull, gte, lte, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
@@ -18,52 +18,122 @@ async function getSchema() {
   return { event, announcement, appUser, membership, joinRequest, eventRsvp };
 }
 
-export async function getUpcomingEvents(limit = 10) {
-  const db = getDb();
-  const { event } = await getSchema();
-  const now = new Date();
-  const events = await db
-    .select({
-      id: event.id,
-      title: event.title,
-      description: event.description,
-      location: event.location,
-      startsAt: event.startsAt,
-      endsAt: event.endsAt,
-      imageUrl: event.imageUrl,
-      rsvpEnabled: event.rsvpEnabled,
-      createdAt: event.createdAt,
-    })
-    .from(event)
-    .where(and(isNull(event.deletedAt), gte(event.startsAt, now)))
-    .orderBy(event.startsAt)
-    .limit(limit);
-
-  return events;
+export interface PaginatedResult<T> {
+  data: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
-export async function getPastEvents(limit = 10) {
+export async function getUpcomingEvents(
+  page: number = 1,
+  pageSize: number = 10
+): Promise<PaginatedResult<{
+  id: string;
+  title: string;
+  description: string;
+  location: string | null;
+  startsAt: Date;
+  endsAt: Date | null;
+  imageUrl: string | null;
+  rsvpEnabled: boolean;
+  createdAt: Date;
+}>> {
   const db = getDb();
   const { event } = await getSchema();
   const now = new Date();
-  const events = await db
-    .select({
-      id: event.id,
-      title: event.title,
-      description: event.description,
-      location: event.location,
-      startsAt: event.startsAt,
-      endsAt: event.endsAt,
-      imageUrl: event.imageUrl,
-      rsvpEnabled: event.rsvpEnabled,
-      createdAt: event.createdAt,
-    })
-    .from(event)
-    .where(and(isNull(event.deletedAt), lte(event.startsAt, now)))
-    .orderBy(desc(event.startsAt))
-    .limit(limit);
+  const offset = (page - 1) * pageSize;
 
-  return events;
+  const [events, totalResult] = await Promise.all([
+    db
+      .select({
+        id: event.id,
+        title: event.title,
+        description: event.description,
+        location: event.location,
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
+        imageUrl: event.imageUrl,
+        rsvpEnabled: event.rsvpEnabled,
+        createdAt: event.createdAt,
+      })
+      .from(event)
+      .where(and(isNull(event.deletedAt), gte(event.startsAt, now)))
+      .orderBy(event.startsAt)
+      .limit(pageSize)
+      .offset(offset),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(event)
+      .where(and(isNull(event.deletedAt), gte(event.startsAt, now))),
+  ]);
+
+  const total = totalResult[0]?.count || 0;
+  const totalPages = Math.ceil(total / pageSize);
+
+  return {
+    data: events,
+    total,
+    page,
+    pageSize,
+    totalPages,
+  };
+}
+
+export async function getPastEvents(
+  page: number = 1,
+  pageSize: number = 10
+): Promise<PaginatedResult<{
+  id: string;
+  title: string;
+  description: string;
+  location: string | null;
+  startsAt: Date;
+  endsAt: Date | null;
+  imageUrl: string | null;
+  rsvpEnabled: boolean;
+  createdAt: Date;
+}>> {
+  const db = getDb();
+  const { event } = await getSchema();
+  const now = new Date();
+  const offset = (page - 1) * pageSize;
+
+  const [events, totalResult] = await Promise.all([
+    db
+      .select({
+        id: event.id,
+        title: event.title,
+        description: event.description,
+        location: event.location,
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
+        imageUrl: event.imageUrl,
+        rsvpEnabled: event.rsvpEnabled,
+        createdAt: event.createdAt,
+      })
+      .from(event)
+      .where(and(isNull(event.deletedAt), lte(event.startsAt, now)))
+      .orderBy(desc(event.startsAt))
+      .limit(pageSize)
+      .offset(offset),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(event)
+      .where(and(isNull(event.deletedAt), lte(event.startsAt, now))),
+  ]);
+
+  const total = totalResult[0]?.count || 0;
+  const totalPages = Math.ceil(total / pageSize);
+
+  return {
+    data: events,
+    total,
+    page,
+    pageSize,
+    totalPages,
+  };
 }
 
 export async function getEventById(id: string) {
@@ -142,7 +212,19 @@ export async function toggleEventRsvp(eventId: string) {
   }
 }
 
-export async function getAnnouncements(visibility?: "public" | "members_only") {
+export async function getAnnouncements(
+  visibility?: "public" | "members_only",
+  page: number = 1,
+  pageSize: number = 10
+): Promise<PaginatedResult<{
+  id: string;
+  title: string;
+  body: string;
+  imageUrl: string | null;
+  visibility: "public" | "members_only";
+  publishedAt: Date;
+  createdBy: string;
+}>> {
   const db = getDb();
   const { announcement } = await getSchema();
   const whereClause = isNull(announcement.deletedAt);
@@ -150,22 +232,40 @@ export async function getAnnouncements(visibility?: "public" | "members_only") {
   const visibilityFilter = visibility
     ? eq(announcement.visibility, visibility)
     : sql`${announcement.visibility} IN ('public', 'members_only')`;
+  const offset = (page - 1) * pageSize;
 
-  const announcements = await db
-    .select({
-      id: announcement.id,
-      title: announcement.title,
-      body: announcement.body,
-      imageUrl: announcement.imageUrl,
-      visibility: announcement.visibility,
-      publishedAt: announcement.publishedAt,
-      createdBy: announcement.createdBy,
-    })
-    .from(announcement)
-    .where(and(whereClause, visibilityFilter))
-    .orderBy(desc(announcement.publishedAt));
+  const [announcements, totalResult] = await Promise.all([
+    db
+      .select({
+        id: announcement.id,
+        title: announcement.title,
+        body: announcement.body,
+        imageUrl: announcement.imageUrl,
+        visibility: announcement.visibility,
+        publishedAt: announcement.publishedAt,
+        createdBy: announcement.createdBy,
+      })
+      .from(announcement)
+      .where(and(whereClause, visibilityFilter))
+      .orderBy(desc(announcement.publishedAt))
+      .limit(pageSize)
+      .offset(offset),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(announcement)
+      .where(and(whereClause, visibilityFilter)),
+  ]);
 
-  return announcements;
+  const total = totalResult[0]?.count || 0;
+  const totalPages = Math.ceil(total / pageSize);
+
+  return {
+    data: announcements,
+    total,
+    page,
+    pageSize,
+    totalPages,
+  };
 }
 
 export async function getLatestAnnouncement() {
